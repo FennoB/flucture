@@ -1,0 +1,955 @@
+{
+  "documentLayout": {
+    "blocks": [{
+      "blockId": "1",
+      "textBlock": {
+        "text": "GEWA3: \u003c\u003cMELDUNG:EINGETRAGENERNAMEOHNECRLF\u003e\u003e",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "2",
+      "textBlock": {
+        "text": "Name der entgegennehmenden Stelle",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "3",
+      "textBlock": {
+        "text": "Gemeindekennzahl der Gemeinde des Sitzes",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "4",
+      "textBlock": {
+        "text": "GewA 3",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "5",
+      "textBlock": {
+        "text": "der Betriebsstätte",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "6",
+      "textBlock": {
+        "text": "Gewerbe-Abmeldung",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "7",
+      "textBlock": {
+        "text": "nach § 14 oder § 55c der Gewerbeordnung",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "8",
+      "textBlock": {
+        "text": "Angaben zum Betriebsinhaber",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "9",
+      "textBlock": {
+        "text": "1 Im Handels-, Genossenschafts- oder Vereinsregister, ggf. im Stiftungsverzeichnis eingetragener Name mit Rechtsform (bei GbR: Angabe der weiteren Gesellschafter)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "10",
+      "textBlock": {
+        "text": "Bitte die nachfolgenden Felder vollständig und gut lesbar ausfüllen sowie die zutreffenden Kästchen",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "11",
+      "textBlock": {
+        "text": "ankreuzen",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "12",
+      "textBlock": {
+        "text": "Bei Personengesellschaften (z. B. OHG) ist für jeden geschäftsführenden Gesellschafter ein eigener Vordruck auszufüllen. Bei juristischen Personen sind in den Feldern 4 bis 11 die Angaben zum gesetzlichen Vertreter einzutragen (bei inländischer AG wird auf diese Angaben verzichtet). Bei weiteren gesetzlichen Vertretern sind die Angaben auf Beiblättern zu machen.",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "13",
+      "textBlock": {
+        "text": "2 Ort und Nummer des Eintrages im Handels-, Genossenschafts- oder Vereinsregister, ggf. Nummer im Stiftungsverzeichnis",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "14",
+      "textBlock": {
+        "text": "3 Name des Geschäfts, wenn er vom eingetragenen Namen in Feld 1 abweicht (Geschäftsbezeichnung: z. B. Gaststätte zum grünen Baum, Friseur Haargenau)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "15",
+      "textBlock": {
+        "text": "Angaben zur Person",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "16",
+      "textBlock": {
+        "text": "4 Name",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "17",
+      "textBlock": {
+        "text": "5 Vornamen",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "18",
+      "textBlock": {
+        "text": "6 Geschlecht (Angabe ist entsprechend der Eintragung in der Geburtsurkunde zu machen)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "19",
+      "textBlock": {
+        "text": "männlich ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "20",
+      "textBlock": {
+        "text": "weiblich",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "21",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "22",
+      "textBlock": {
+        "text": "divers",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "23",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "24",
+      "textBlock": {
+        "text": "ohne Angabe ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "25",
+      "textBlock": {
+        "text": "7 Geburtsname (nur bei Abweichung vom Namen)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "26",
+      "textBlock": {
+        "text": "8 Geburtsdatum",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "27",
+      "textBlock": {
+        "text": "9 Geburtsort und -land",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "28",
+      "textBlock": {
+        "text": "10 Staatsangehörigkeit(en)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "29",
+      "textBlock": {
+        "text": "11 Anschrift der Wohnung (Straße, Hausnummer, Postleitzahl, Ort)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "30",
+      "textBlock": {
+        "text": "(Mobil-)Telefonnummer",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "31",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "32",
+      "textBlock": {
+        "text": "deutsch",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "33",
+      "textBlock": {
+        "text": "andere:",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "34",
+      "textBlock": {
+        "text": "Telefaxnummer",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "35",
+      "textBlock": {
+        "text": "E-Mail-Adresse",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "36",
+      "textBlock": {
+        "text": "Internetadresse",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "37",
+      "textBlock": {
+        "text": "Angaben zum Betrieb",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "38",
+      "textBlock": {
+        "text": "12 Zahl der geschäftsführenden Gesellschafter (nur bei Personengesellschaften) /",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "39",
+      "textBlock": {
+        "text": "Zahl der gesetzlichen Vertreter (nur bei juristischen Personen)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "40",
+      "textBlock": {
+        "text": "13 Liegt eine Beteiligung der öffentlichen Hand vor?",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "41",
+      "textBlock": {
+        "text": "ja ☐ nein",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "42",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "43",
+      "textBlock": {
+        "text": "nicht bekannt",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "44",
+      "textBlock": {
+        "text": "14 Vertretungsberechtigte Person/Betriebsleiter (nur bei inländischen Aktiengesellschaften, Zweigniederlassungen und unselbstständigen",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "45",
+      "textBlock": {
+        "text": "Zweigstellen)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "46",
+      "textBlock": {
+        "text": "Vornamen",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "47",
+      "textBlock": {
+        "text": "Name",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "48",
+      "textBlock": {
+        "text": "Anschriften (Straße, Hausnummer, Postleitzahl, Ort)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "49",
+      "textBlock": {
+        "text": "15",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "50",
+      "textBlock": {
+        "text": "Betriebsstätte",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "51",
+      "textBlock": {
+        "text": "(Mobil-)Telefonnummer Telefaxnummer E-Mail-Adresse Internetadresse",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "52",
+      "textBlock": {
+        "text": "16 Hauptniederlassung (falls Betriebsstätte lediglich Zweigniederlassung oder unselbstständige Zweigstelle ist)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "53",
+      "textBlock": {
+        "text": "(Mobil-)Telefonnummer Telefaxnummer E-Mail-Adresse Internetadresse",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "54",
+      "textBlock": {
+        "text": "17 Künftige Betriebsstätte (falls an einem anderen Ort eine Neuerrichtung beabsichtigt ist)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "55",
+      "textBlock": {
+        "text": "(Mobil-)Telefonnummer Telefaxnummer E-Mail-Adresse Internetadresse",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "56",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 1,
+        "pageEnd": 1
+      }
+    }, {
+      "blockId": "57",
+      "textBlock": {
+        "text": "Seite 2 von 2",
+        "type": "header"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "58",
+      "textBlock": {
+        "text": "18 Abgemeldete Tätigkeit (bitte genau angeben und Tätigkeit möglichst genau beschreiben: z. B. Herstellung von Möbeln, Elektroinstallationen und Elektroeinzelhandel, Großhandel mit Lebensmitteln); bei mehreren Tätigkeiten bitte den Schwerpunkt unterstreichen - ggf. ein Beiblatt verwenden",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "59",
+      "textBlock": {
+        "text": "19 Wurde die aufgegebene Tätigkeit (zuletzt) im Nebenerwerb betrieben?",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "60",
+      "textBlock": {
+        "text": "20 Datum der Betriebsaufgabe",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "61",
+      "textBlock": {
+        "text": "ja",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "62",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "63",
+      "textBlock": {
+        "text": "nein",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "64",
+      "textBlock": {
+        "text": "21 Art des abgemeldeten Betriebes",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "65",
+      "textBlock": {
+        "text": "Industrie",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "66",
+      "textBlock": {
+        "text": "Handwerk",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "67",
+      "textBlock": {
+        "text": "Handel",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "68",
+      "textBlock": {
+        "text": "Sonstiges ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "69",
+      "textBlock": {
+        "text": "22 Zahl der bei Geschäftsaufgabe/-übergabe tätigen Personen (einschließlich",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "70",
+      "textBlock": {
+        "text": "Vollzeit",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "71",
+      "textBlock": {
+        "text": "Teilzeit",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "72",
+      "textBlock": {
+        "text": "Keine",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "73",
+      "textBlock": {
+        "text": "☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "74",
+      "textBlock": {
+        "text": "Aushilfen, Ehe- oder Lebenspartner des Inhabers); ohne Inhaber",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "75",
+      "textBlock": {
+        "text": "Die Abmeldung",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "76",
+      "textBlock": {
+        "text": "23",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "77",
+      "textBlock": {
+        "text": "eine Hauptniederlassung ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "78",
+      "textBlock": {
+        "text": "eine Zweigniederlassung",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "79",
+      "textBlock": {
+        "text": "eine unselbstständige Zweigstelle ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "80",
+      "textBlock": {
+        "text": "wird erstattet für",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "81",
+      "textBlock": {
+        "text": "24",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "82",
+      "textBlock": {
+        "text": "ein Reisegewerbe",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "83",
+      "textBlock": {
+        "text": "25 Grund der Aufgabe/",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "84",
+      "textBlock": {
+        "text": "Vollständige Aufgabe",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "85",
+      "textBlock": {
+        "text": "Verlegung in einen anderen Meldebezirk ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "86",
+      "textBlock": {
+        "text": "26 der Übergabe",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "87",
+      "textBlock": {
+        "text": "Wechsel der Rechtsform",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "88",
+      "textBlock": {
+        "text": "Übergang nach d. Umwandlungsgesetz (z.B. Verschmelzung, Spaltung)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "89",
+      "textBlock": {
+        "text": "Gesellschafteraustritt",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "90",
+      "textBlock": {
+        "text": "Übergabe (Erbfolge, Kauf, Pacht) ☐",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "91",
+      "textBlock": {
+        "text": "27 Name des künftigen Gewerbetreibenden oder künftiger Firmenname",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "92",
+      "textBlock": {
+        "text": "28 Gründe für die Betriebsaufgabe (z. B. Alter, wirtschaftliche Schwierigkeiten, Insolvenzverfahren usw.)",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "93",
+      "textBlock": {
+        "text": "Hinweis: Eine Wiederaufnahme der abgemeldeten Tätigkeit ist erneut anzeigepflichtig.",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "94",
+      "textBlock": {
+        "text": "29 Datum",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }, {
+      "blockId": "95",
+      "textBlock": {
+        "text": "30 Unterschrift",
+        "type": "paragraph"
+      },
+      "pageSpan": {
+        "pageStart": 2,
+        "pageEnd": 2
+      }
+    }]
+  }
+}

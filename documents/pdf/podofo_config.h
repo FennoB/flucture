@@ -1,0 +1,4 @@
+#ifndef PODOFO_CONFIG_H
+#define PODOFO_CONFIG_H
+
+#endif // PODOFO_CONFIG_H
