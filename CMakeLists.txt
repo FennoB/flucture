@@ -20,10 +20,11 @@ set(FLUCTURE_CORE_SOURCES
   documents/layout/flx_layout_bounds.cpp
   documents/layout/flx_layout_text.cpp
   documents/layout/flx_layout_image.cpp
+  documents/layout/flx_layout_vertex.cpp
   documents/layout/flx_layout_geometry.cpp
+  documents/flx_doc_sio.cpp
   api/aimodels/flx_openai_api.cpp
-  # documents/flx_doc_sio.cpp  # Temporarily disabled due to element dependencies
-  # documents/pdf/flx_pdf_sio.cpp  # Temporarily disabled due to element dependencies
+  documents/pdf/flx_pdf_sio.cpp
   api/server/flx_rest_api.cpp
   api/server/flx_httpdaemon.cpp
   api/json/flx_json.cpp
@@ -47,6 +48,7 @@ set(FLUCTURE_CORE_HEADERS
   documents/layout/flx_layout_bounds.h
   documents/layout/flx_layout_text.h
   documents/layout/flx_layout_image.h
+  documents/layout/flx_layout_vertex.h
   documents/layout/flx_layout_geometry.h
   api/json/json.hpp # Header-only library
   api/aimodels/flx_openai_api.h

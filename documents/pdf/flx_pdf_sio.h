@@ -2,41 +2,49 @@
 #define flx_PDF_SIO_H
 
 #include "../flx_doc_sio.h"
-#include "../../utils/flx_geometry.h"
-#include "../../utils/flx_text_element.h"
-#include "../../utils/flx_layout_element.h"
+#include "../layout/flx_layout_geometry.h"
+#include "flx_pdf_coords.h"
+#include <vector>
+#include <memory>
 
-namespace PoDoFo
-{
-  class PdfMemDocument;
+namespace PoDoFo { 
+  class PdfMemDocument; 
+  class PdfPainter;
+  class PdfImage;
 }
-namespace cv
-{
-  class Mat;
-}
+namespace cv { class Mat; }
+
 class flx_pdf_sio : public flx_doc_sio
 {
+private:
   PoDoFo::PdfMemDocument *m_pdf;
-  flx_string data;
-  bool pdf2images(std::vector<cv::Mat>& output_mats, int dpi = 300);
+  flx_string pdf_data;
 
 public:
   flx_pdf_sio();
+  ~flx_pdf_sio();
 
-  bool parse(flx_string &data);
-  bool serialize(flx_string &data);
-  bool add_text(flx_string text, flx_point position);
-  bool extract_texts(flx_model_list<flx_text_element> &texts);
-  bool extract_contents(flx_string &data);
-  void draw_text_boxes_on_images(std::vector<cv::Mat> &images, const std::vector<flx_text_element> &text_elements, double dpi, int box_size_px = 10);
-  bool extract_layout_from_page(
-    const cv::Mat& page_image,                      // Das Bild der aktuellen Seite
-    int current_page_index,                         // 0-basierter Index dieser Seite
-    const std::vector<flx_text_element>& all_texts, // Alle Textelemente des Dokuments
-    double dpi,                                      // Die DPI-Einstellung,
-    std::vector<flx_layout_element> &layout_elements // Ausgabearray für die Layout-Elemente
-    );
-  bool extract_full_layout(const std::vector<cv::Mat> &images, const std::vector<flx_text_element> &all_text_elements, double dpi, std::vector<flx_layout_element> &document_pages);
+  // Core document operations
+  bool parse(flx_string &data) override;
+  bool serialize(flx_string &data) override;
+
+  // PDF rendering
+  bool render(std::vector<cv::Mat>& output_images, int dpi = 300);
+
+  
+  // Text operations
+  bool add_text(flx_string text, double x, double y);
+
+private:
+  // Internal rendering methods
+  void render_geometry_to_page(PoDoFo::PdfPainter& painter, flx_layout_geometry& geometry);
+  void render_polygon_shape(PoDoFo::PdfPainter& painter, flx_layout_geometry& geometry);
+  void render_text_element(PoDoFo::PdfPainter& painter, flx_layout_text& text_elem);
+  void render_image_element(PoDoFo::PdfPainter& painter, flx_layout_image& image_elem);
+  
+  // Image processing helpers
+  bool load_image_from_path(flx_layout_image& image_elem);
+  std::unique_ptr<PoDoFo::PdfImage> create_pdf_image_from_mat(flx_layout_image& image_elem);
 };
 
 #endif // flx_PDF_SIO_H

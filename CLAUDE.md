@@ -71,6 +71,12 @@ The project uses a custom model system with variant-based properties:
 - Add include directories if needed
 - Document new dependency in file structure section
 
+### EVENT: Completing a major topic or feature
+- Update CLAUDE.md with new learnings and implementation details
+- Document any new API patterns, architectural decisions, or gotchas discovered
+- Create a git commit with descriptive message summarizing the completed work
+- Ensure all tests pass before committing
+
 ### EVENT: Before each commit
 - Generate documentation for new code
 - Ensure minimal inline comments (documentation is external)
@@ -91,3 +97,91 @@ The project uses a custom model system with variant-based properties:
 
 ## Known Issues
 - **Removed legacy classes**: Old flx_element and flx_geometry classes replaced by new layout system
+
+## PoDoFo PDF API Learnings
+
+### Polygon/Shape Rendering
+- **Path Creation**: Use `PdfPainterPath` class, not direct painter methods
+- **Path Operations**: 
+  - `path.MoveTo(x, y)` - Start path at point
+  - `path.AddLineTo(x, y)` - Add line to point
+  - `path.Close()` - Close path
+- **Drawing**: `painter.DrawPath(path, PdfPathDrawMode::Fill)` for filled shapes
+- **Draw Modes**: `PdfPathDrawMode::Fill`, `::Stroke`, `::StrokeFill`, etc.
+
+### Color Management
+- **Private Methods**: `painter.SetNonStrokingColor()` is private - cannot use directly
+- **GraphicsState Access**: `painter.GraphicsState` is wrapper, not direct struct
+- **Color Setting**: Complex API - needs further investigation for proper color support
+- **Temporary Solution**: Skip color setting for initial implementation
+
+### Document Serialization
+- **Buffer Output**: Use `StandardStreamDevice` with `std::stringstream`
+- **Save Method**: `m_pdf->Save(StandardStreamDevice(buffer))` works correctly
+- **Memory Management**: Always clean up PdfMemDocument* properly
+
+### Forward Declarations
+- **Header Files**: Use forward declarations for PoDoFo classes in headers
+- **Required**: `namespace PoDoFo { class PdfMemDocument; class PdfPainter; }`
+- **Include Strategy**: Include full headers only in .cpp files
+
+## Polygon-Based Geometry System
+
+### New Classes
+- **flx_layout_vertex**: Simple point class with x,y properties
+- **Enhanced flx_layout_geometry**: Now supports both container AND visual element
+- **Dual Purpose**: Can be empty container OR polygon with fill_color
+
+### Design Decisions
+- **No stroke properties**: stroke_color/stroke_width removed (OpenCV detection difficulty)
+- **Focus on detectables**: Only properties that CV can reliably extract
+- **Vertex-based**: Arbitrary polygons supported via vertex list
+- **Format-agnostic**: Pages property moved to base flx_doc_sio class
+
+### OpenCV Considerations
+- **Easy to detect**: fill_color (dominant color in region), vertices (contour detection)
+- **Hard to detect**: stroke_color (edge analysis), stroke_width (line thickness measurement)
+- **Future bidirectional mapping**: Only include properties we can both render AND detect
+
+## Image Rendering System
+
+### PoDoFo Image Integration
+- **Image Creation**: `m_pdf->CreateImage()` returns unique_ptr<PdfImage>
+- **Loading**: `pdf_image->LoadFromBuffer(bufferview)` from file data
+- **Drawing**: `painter.DrawImage(*pdf_image, x, y, width, height)` with positioning
+- **File Support**: PNG, JPEG via PoDoFo's built-in codecs
+
+### OpenCV Integration
+- **Validation**: `cv::imread()` for image loading validation
+- **Metadata**: Extract original dimensions (width, height) from cv::Mat
+- **Future**: Direct cv::Mat to PoDoFo conversion for processed images
+- **Strategy**: File-based approach (load file → PoDoFo) vs pixel-based (cv::Mat → buffer)
+
+### Implementation Strategy
+- **Clean separation**: flx_layout_image stores metadata, rendering loads file
+- **Error handling**: Graceful fallbacks when images missing/corrupt
+- **Memory efficient**: No cv::Mat storage in layout model
+- **Format agnostic**: PoDoFo handles format detection automatically
+
+## Complete PDF Rendering System
+
+### Text Rendering Over Polygons
+- **Critical Fix**: Text must have explicit color set with `painter.GraphicsState.SetNonStrokingColor(PdfColor(0,0,0))`
+- **Z-Order Issue**: Without explicit color, text can appear behind filled polygons
+- **PDF Graphics State**: Text and polygon fills share the same graphics state, requiring color resets
+
+### Image Positioning and Scaling
+- **Coordinate System**: PDF uses bottom-left origin, layout system uses top-left
+- **Y-Coordinate Conversion**: `pdf_y = 842.0 - layout_y - image_height` for A4 pages
+- **Scaling API**: PoDoFo uses `DrawImage(image, x, y, scaleX, scaleY)` not width/height
+- **Scale Calculation**: `scale = desired_size / original_image_size`
+
+### Polygon Color Rendering
+- **Fill Color API**: Use `painter.GraphicsState.SetNonStrokingColor(PdfColor)` for polygon fills
+- **Color Parsing**: Convert hex strings (#RRGGBB) to PdfColor with RGB values 0.0-1.0
+- **Rendering Order**: Polygons → Sub-geometries → Text → Images for correct layering
+
+### Deep Nested Structures
+- **4-Level Hierarchies**: Successfully tested with sidebar → bands → dots → accents
+- **Color Variations**: Each level can have different fill colors creating complex visual patterns
+- **Performance**: Nested rendering scales well with recursive `render_geometry_to_page()`

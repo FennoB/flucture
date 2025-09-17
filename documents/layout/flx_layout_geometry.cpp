@@ -1,10 +1,7 @@
 #include "flx_layout_geometry.h"
 
-flx_layout_geometry::flx_layout_geometry() {}
-
-flx_layout_geometry::flx_layout_geometry(double x_val, double y_val, double width_val, double height_val)
-  : flx_layout_bounds(x_val, y_val, width_val, height_val)
-{
+flx_layout_geometry::flx_layout_geometry() {
+  fill_color = "#FFFFFF";
 }
 
 void flx_layout_geometry::add_text(flx_layout_text& text) {

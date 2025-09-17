@@ -40,3 +40,13 @@ bool flx_doc_sio::write(flx_string filename)
   f.close();
   return true;
 }
+
+flx_layout_geometry& flx_doc_sio::add_page() {
+  flx_layout_geometry new_page;
+  pages.push_back(new_page);
+  return pages[pages.size() - 1];
+}
+
+size_t flx_doc_sio::page_count() const {
+  return pages.size();
+}
