@@ -145,9 +145,15 @@ public:
 class flx_model : public flx_lazy_ptr<flxv_map>
 {
   std::map<flx_string, flx_property_i*> props;
+  flx_property<flxv_map>* parent_property;
 public:
   flx_model();
   void add_prop(flx_property_i* prop, const flx_string &name);
+  void set_parent(flx_property<flxv_map>* parent_prop);
+  
+  // Override to sync with parent before access
+  virtual flxv_map &operator*() override;
+  virtual const flxv_map &operator*() const override;
   flx_variant& operator[](const flx_string &key)
   {
     return (**this)[key];
@@ -160,31 +166,60 @@ public:
   // operator=
   flx_model& operator=(flx_model &other)
   {
-    this->clear();
     **this = *other;
     return *this;
+  }
+  template<typename T = flx_model>
+  static T from_map(flx_property<flxv_map>& map_prop)
+  {
+    T model;
+    model.set(&map_prop.value());
+    model.set_parent(&map_prop);
+    return model;
   }
 };
 
 template <typename model>
 class flx_model_list : public flx_lazy_ptr<flxv_vector>
 {
-  std::map<size_t, model> models;
+  std::map<size_t, model> cache;
+  flx_property<flxv_vector>* parent_property;
 public:
-  flx_model_list() : flx_lazy_ptr<flxv_vector>()
+  flx_model_list() : flx_lazy_ptr<flxv_vector>(), parent_property(nullptr)
   {
+  }
+  
+  void set_parent(flx_property<flxv_vector>* parent_prop)
+  {
+    parent_property = parent_prop;
+  }
+  
+  // Override to sync with parent before access
+  virtual flxv_vector &operator*() override
+  {
+    if (parent_property != nullptr)
+    {
+      this->set(&parent_property->value());
+    }
+    return flx_lazy_ptr<flxv_vector>::operator*();
+  }
+  
+  // Const version - can't sync, so just delegate to base
+  virtual const flxv_vector &operator*() const override
+  {
+    return flx_lazy_ptr<flxv_vector>::operator*();
   }
 
   // Add a model to the list
   void push_back(model &m)
   {
-    models[this->size()] = m;
-    (**this).push_back(*models[this->size()]);
+    (**this).push_back(*m);
+    cache[this->size() - 1].set(&(**this)[this->size() - 1].to_map());
   }
 
   model& back()
   {
-    return models[this->size() - 1];
+    return at(this->size() - 1);
   }
 
   // Get a model by index
@@ -194,7 +229,22 @@ public:
     {
       throw std::out_of_range("Index out of range");
     }
-    return models[index];
+    cache[index].set(&(**this)[index].to_map());
+    return cache[index];
+  }
+
+  // at const
+  const model& at(size_t index) const
+  {
+    if (index >= this->size())
+    {
+      throw std::out_of_range("Index out of range");
+    }
+    if (cache.find(index) == cache.end())
+    {
+      throw flx_null_access_exception();
+    }
+    return cache.at(index);
   }
 
   // Get the size of the list
@@ -203,9 +253,23 @@ public:
     return (**this).size();
   }
 
+  // const
+  size_t size() const
+  {
+    return (**this).size();
+  }
+
   model& operator[](size_t index)
   {
     return at(index);
+  }
+
+  static flx_model_list from_vector(flx_property<flxv_vector>& vec_prop)
+  {
+    flx_model_list<model> list;
+    list.set(&vec_prop.value());
+    list.set_parent(&vec_prop);
+    return list;
   }
 };
 
@@ -215,6 +279,9 @@ public:
 #define flxp_double(name) flx_property<flxv_double> name = flx_property<flxv_double>(this, #name)
 #define flxp_vector(name) flx_property<flxv_vector> name = flx_property<flxv_vector>(this, #name)
 #define flxp_map(name) flx_property<flxv_map> name = flx_property<flxv_map>(this, #name)
+#define flxp_model(name, model_type) flxp_map(name##_map); model_type name = flx_model::from_map<model_type>(name##_map)
+#define flxp_model_list(name, model_type) flxp_vector(name##_vec); flx_model_list<model_type> name = flx_model_list<model_type>::from_vector(name##_vec)
+
 #endif
 
 #endif // flx_MODEL_H

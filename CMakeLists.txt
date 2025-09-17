@@ -14,13 +14,13 @@ set(APP_MAIN_SOURCE main.cpp)
 # as CMake doesn't always automatically detect changes through GLOB.
 set(FLUCTURE_CORE_SOURCES
   utils/flx_model.cpp
-  # utils/flx_element.cpp  # Temporarily disabled due to const issues
   utils/flx_variant.cpp
-  utils/flx_geometry.cpp
   utils/flx_datetime.cpp
   utils/flx_string.cpp
-  # utils/flx_text_element.cpp  # Temporarily disabled due to const issues
-  # utils/flx_layout_element.cpp  # Temporarily disabled due to const issues
+  documents/layout/flx_layout_bounds.cpp
+  documents/layout/flx_layout_text.cpp
+  documents/layout/flx_layout_image.cpp
+  documents/layout/flx_layout_geometry.cpp
   api/aimodels/flx_openai_api.cpp
   # documents/flx_doc_sio.cpp  # Temporarily disabled due to element dependencies
   # documents/pdf/flx_pdf_sio.cpp  # Temporarily disabled due to element dependencies
@@ -41,13 +41,13 @@ set(FLUCTURE_CORE_SOURCES
 set(FLUCTURE_CORE_HEADERS
   utils/flx_string.h
   utils/flx_model.h
-  utils/flx_element.h
   utils/flx_variant.h
-  utils/flx_geometry.h
   utils/flx_datetime.h
   utils/flx_lazy_ptr.h
-  utils/flx_text_element.h
-  utils/flx_layout_element.h
+  documents/layout/flx_layout_bounds.h
+  documents/layout/flx_layout_text.h
+  documents/layout/flx_layout_image.h
+  documents/layout/flx_layout_geometry.h
   api/json/json.hpp # Header-only library
   api/aimodels/flx_openai_api.h
   # Presumably header-only or part of flx_http_request.cpp

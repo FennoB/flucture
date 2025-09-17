@@ -80,6 +80,10 @@ public:
   }
   void set(object_type *ptr, bool managed=false)
   {
+    if (ptr == this->ptr)
+    {
+      return;
+    }
     clear();
     this->ptr = ptr;
     if (managed)
@@ -93,7 +97,7 @@ public:
   }
   
   // Non-const access - creates object if null
-  object_type &operator*()
+  virtual object_type &operator*()
   {
     if (ptr == nullptr)
     {
@@ -105,7 +109,7 @@ public:
   }
   
   // Const access - throws exception if null
-  const object_type &operator*() const
+  virtual const object_type &operator*() const
   {
     if (ptr == nullptr)
     {
