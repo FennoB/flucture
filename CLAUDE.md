@@ -1,5 +1,49 @@
 # Flucture Project Documentation
 
+## Project Vision & Strategy
+
+### AI Evaluation System for Layout Extraction
+The primary goal is building a **Round-Trip Test System** for AI-based document layout extraction:
+
+1. **Ground Truth Creation**: Start with known Layout structures (flx_layout_*)
+2. **PDF Generation**: Layout → PDF (✅ Complete)
+3. **AI Extraction**: PDF → Layout (Next major milestone)  
+4. **AI Evaluator**: Compare original vs. extracted structures with quantitative metrics
+
+This creates **synthetic training data** and **evaluation benchmarks** for layout extraction AI:
+- **Controlled test scenarios** with perfect ground truth
+- **Quantitative metrics** for structure accuracy, position precision, hierarchy correctness
+- **Training datasets** for AI models without relying on unknown/unverified PDFs
+- **Systematic evaluation** of extraction quality across different document types
+
+The AI Evaluator will assess:
+- Layout structure semantic similarity
+- Coordinate accuracy with configurable tolerances  
+- Hierarchical nesting correctness ("what is inside what")
+- Component-specific scores (text extraction, geometry detection, image placement)
+
+### PDF → Layout Extraction Strategy
+Comprehensive 7-step process for reverse-engineering PDF structure:
+
+**Phase 1: Content Extraction**
+0. **PDF Memory Copy**: Create working copy of PDF in memory with PoDoFo
+1. **Text/Image Extraction**: Use PoDoFo API to extract all texts and images into separate lists
+
+**Phase 2: Geometry Isolation** 
+2. **Content Removal**: Strip texts and images from PDF copy to isolate pure geometric shapes
+3. **Clean Rendering**: Render cleaned PDF pages to images for computer vision processing
+
+**Phase 3: Advanced Region Detection**
+4. **OpenCV Processing**: Open rendered pages with OpenCV for contour analysis
+5. **Flood-Fill Algorithm**: Custom color-coherent region detection using neighbor-by-neighbor color comparison (NOT traditional findContours). Creates binary masks for each color-coherent region, allowing gradients by comparing only adjacent pixels. Implements flood-fill that maintains "already processed" binary mask.
+6. **Polygon Extraction**: Apply contour detection to binary masks for precise polygon boundaries
+
+**Phase 4: Hierarchical Reconstruction**
+6. **Containment Analysis**: Sort geometry objects into hierarchy using recursive sibling containment checking
+7. **Content Assignment**: Recursively sort extracted texts and images into appropriate geometry containers based on spatial relationships
+
+This approach ensures clean separation of geometric shapes from text artifacts and handles color gradients gracefully.
+
 ## Core Architecture
 
 ### flx_model Framework
@@ -34,8 +78,22 @@ The project uses a custom model system with variant-based properties:
 - `utils/`: Core framework (flx_model, flx_variant, flx_lazy_ptr, flx_string)
 - `documents/layout/`: Layout detection classes (flx_layout_bounds, flx_layout_text, flx_layout_image, flx_layout_geometry)
 - `documents/pdf/`: PDF-specific processing and coordinate conversion (flx_pdf_coords.h)
+- `documents/pdf/podofo-master/`: Embedded PoDoFo 1.0.0 library source
 - `tests/`: Catch2 tests with auto-discovery, uses SCENARIO/GIVEN/WHEN/THEN structure
 - `build/`: Generated build files (created by cmake)
+
+## Library Versions & Build Configuration
+- **PoDoFo**: Version 1.0.0 (Major: 1, Minor: 0, Patch: 0)
+  - **Build**: Static library (`PODOFO_BUILD_STATIC TRUE`)
+  - **Location**: `documents/pdf/podofo-master/` (embedded source)
+  - **Include Paths**: 
+    - `documents/pdf/podofo-master/src`
+    - `documents/pdf/podofo-master/src/podofo` 
+  - **Link**: `podofo::podofo` target
+- **OpenCV**: For computer vision processing (`${OpenCV_LIBS}`)
+- **Catch2**: Version v3.6.0 for testing framework
+- **C++ Standard**: C++17 required
+- **Other Dependencies**: libcurl, OpenSSL, freetype, libmicrohttpd
 
 ## Testing Framework
 - **Catch2**: Uses `#include <catch2/catch_all.hpp>`
@@ -76,11 +134,17 @@ The project uses a custom model system with variant-based properties:
 - Document any new API patterns, architectural decisions, or gotchas discovered
 - Create a git commit with descriptive message summarizing the completed work
 - Ensure all tests pass before committing
+- **Immediately start the next major topic** - maintain momentum and continue development
 
 ### EVENT: Before each commit
 - Generate documentation for new code
 - Ensure minimal inline comments (documentation is external)
 - Run full test suite to verify stability
+
+### EVENT: When using file system commands
+- **Always check current working directory first** with `pwd`
+- Adjust file paths accordingly (project root vs build directory)
+- Working directory is typically `/home/fenno/Projects/flucture/build`
 
 ## Important Implementation Details
 - Use `long long` internally but support `int` literals via SFINAE template magic
@@ -97,6 +161,43 @@ The project uses a custom model system with variant-based properties:
 
 ## Known Issues
 - **Removed legacy classes**: Old flx_element and flx_geometry classes replaced by new layout system
+
+## PDF Text Extraction with Font Information
+
+### Custom Text Extractor Implementation
+Created `flx_pdf_text_extractor` to extract text with font size and font family information:
+
+**Key Components:**
+- **Enhanced Text Entry Structure**: `flx_pdf_text_entry` extends basic text with font metadata
+- **Content Stream Processing**: Uses `PdfContentStreamReader` to parse PDF operators
+- **Font State Tracking**: Monitors `Tf` (font) operators to capture font changes
+- **Text Operator Handling**: Processes `Tj`, `'`, `"` operators for text content
+
+**PDF Operator Support:**
+- `BT/ET`: Begin/End text blocks
+- `Tf`: Set font name and size (fontname size Tf)
+- `Tj`: Show text string 
+- `'`, `"`: Text with positioning/spacing
+- `TJ`: Text array with individual glyph positioning (TODO)
+
+**Font Family Detection:**
+- Basic mapping for common fonts (Arial, Times, Courier, Helvetica)
+- Extracts font name from `PdfFont` object via `font->GetName()`
+- Fallback to "Arial" for unmapped or missing fonts
+
+**Known Limitations:**
+- Text positioning not fully implemented (requires text matrix tracking)
+- TJ operator (text arrays) not yet supported
+- Font data corruption issues when using PDF memory copies
+- **Critical Issue**: Font data becomes corrupted when PDFs are serialized/reloaded
+- **Workaround**: Pipeline structure implemented without actual text extraction
+
+**Current Status:**
+- ✅ Complete PDF → Layout parsing pipeline structure implemented
+- ✅ PDF memory copy creation working
+- ✅ Basic geometry isolation framework in place
+- ❌ Text extraction disabled due to font corruption
+- ⏳ Next: Implement PDF content removal for geometry isolation
 
 ## PoDoFo PDF API Learnings
 
@@ -185,3 +286,116 @@ The project uses a custom model system with variant-based properties:
 - **4-Level Hierarchies**: Successfully tested with sidebar → bands → dots → accents
 - **Color Variations**: Each level can have different fill colors creating complex visual patterns
 - **Performance**: Nested rendering scales well with recursive `render_geometry_to_page()`
+
+## Complete PDF Text Extraction Implementation
+
+### Major Achievement: Full PoDoFo Integration
+Successfully copied the entire 1400+ line `PdfPage_TextExtraction.cpp` implementation from PoDoFo into our custom `flx_pdf_text_extractor` class:
+
+- ✅ **Complete Font-Encoding Support**: CMap tables, composite fonts, glyph-to-Unicode mapping
+- ✅ **All "Wild" PDF Text Formats**: Hex strings, character codes, embedded encodings, subsetting
+- ✅ **Precise Text Matrix Transformations**: Correct positioning calculations with CTM and text matrices
+- ✅ **Full PDF Operator Support**: BT/ET, Tf, Tj/TJ/Quote/DoubleQuote, Tm/Td/TD/T*
+- ✅ **StatefulString Processing**: Character widths, glyph positions, proper UTF-8 handling
+- ✅ **Hierarchical XObject Support**: Form XObjects and complex PDF structures
+
+### Implementation Architecture
+- **Single Class Design**: All PoDoFo structures refactored as nested structs/classes
+- **Public flx-Compatible API**: `extract_text_with_fonts(PdfPage, vector<flx_layout_text>)`
+- **Private PoDoFo Implementation**: Direct copy of original extraction logic
+- **Conversion Layer**: `convertPdfEntriesToFlxTexts()` maps PoDoFo::PdfTextEntry to flx_layout_text
+
+### Key Classes Copied
+```cpp
+struct TextState {
+    Matrix T_rm, CTM, T_m, T_lm;  // Text transformation matrices
+    PdfTextState PdfState;        // Font, size, spacing
+    void ScanString(...);         // Character-level string processing
+};
+
+class StatefulString {
+    const string String;
+    const vector<double> Lengths, RawLengths;
+    const vector<unsigned> StringPositions;  // Glyph positions
+};
+
+struct ExtractionContext {
+    TextStateStack States;        // Graphics state stack
+    StringChunkList Chunks;       // Text collection system
+};
+```
+
+### Critical Font Data Issue Solved
+- **Root Cause**: Font corruption occurred during PDF serialization/copying operations
+- **Solution**: Extract text IMMEDIATELY after PDF loading, before any modifications
+- **Architecture**: Text extraction now happens in `parse()` method before any PDF copying
+
+## Complete PDF → Layout Extraction Pipeline
+
+### Refactored Architecture: parse() Does Everything
+Completely restructured the PDF processing to be semantically correct:
+
+**Before**: `parse()` only loaded PDF, `parse_to_layout()` did extraction
+**After**: `parse()` does complete PDF → Layout semantic extraction
+
+### 7-Step Extraction Process (All in parse())
+```cpp
+bool flx_pdf_sio::parse(flx_string &data) {
+    // Step 1: Load PDF
+    m_pdf->LoadFromBuffer(buffer);
+    
+    // Step 2: Extract texts/images from ORIGINAL PDF (before modifications)
+    extract_texts_and_images(extracted_texts, extracted_images);
+    
+    // Step 3: Create PDF copy for geometry isolation
+    auto pdf_copy = create_pdf_copy();
+    
+    // Step 4: Remove texts/images from copy to isolate geometry
+    remove_texts_and_images_from_copy(pdf_copy.get());
+    
+    // Step 5: Render cleaned PDF to images for OpenCV processing
+    render_clean_pdf_to_images(pdf_copy.get(), clean_images);
+    
+    // Step 6: Detect color-coherent regions using flood-fill
+    detect_color_regions(page_image);
+    
+    // Step 7: Build layout structure and assign content
+    build_geometry_hierarchy(root_geometries);
+    assign_content_to_geometries(texts, images, geometries);
+    
+    // Store final layout in pages
+    pages = root_geometries;
+}
+```
+
+### Design Philosophy
+- **Semantic Correctness**: Reading a file should extract its semantic structure
+- **Single Responsibility**: `parse()` method does complete document understanding
+- **No Intermediate States**: Either fully parsed or failed, no partial states
+- **Immediate Processing**: Text extraction happens before any PDF modifications
+
+### Font Corruption Prevention
+- **Timing Critical**: Text extraction MUST happen immediately after PDF loading
+- **No Serialization**: Extract from original PDF document, never from copies
+- **Font State Preservation**: All font objects and encoding tables remain intact
+
+### Current Implementation Status
+- ✅ **Complete PoDoFo Text Extractor**: Full 1400+ line implementation integrated
+- ✅ **Refactored parse() Method**: Complete PDF → Layout pipeline architecture
+- ✅ **Font Issue Resolution**: Text extraction timing fixed
+- ✅ **All Steps 1-7 Fully Implemented**: Complete pipeline working and compiling
+- ✅ **Neighbor-Based Flood-Fill**: Custom algorithm for gradient-aware region detection
+- ✅ **Hierarchical Geometry Reconstruction**: Containment-based structure building
+- ✅ **Direct flx_model_list Integration**: No std::vector conversion needed
+
+## Complete Round-Trip Test System
+1. **Layout → PDF**: ✅ Complete and working
+2. **PDF → Layout**: ✅ Complete pipeline implemented
+3. **AI Evaluator**: Ready for quantitative comparison metrics
+
+### Key Implementation Details
+- **PDF Content Stream Filtering**: Removes text/image operators while preserving geometry
+- **Neighbor-Comparison Flood-Fill**: Each pixel compared only to neighbors for gradient support
+- **No White Filtering**: White regions preserved, filtered only at border detection stage
+- **Recursive Content Assignment**: Texts/images assigned to deepest matching geometry container
+- **Direct Model List Usage**: Works directly with flx_model_list throughout pipeline
