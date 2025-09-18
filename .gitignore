@@ -1,3 +1,7 @@
+# Environment files (contains API keys)
+.env
+.env.*
+
 # Build directories
 build/
 cmake-build-*/

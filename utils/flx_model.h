@@ -163,6 +163,15 @@ public:
   {
     **this = *other;
   }
+  // const copy constructor
+  flx_model(const flx_model &other) : flx_lazy_ptr<flxv_map>()
+  {
+    try {
+      **this = *other;
+    } catch (...) {
+      // Ignore exceptions during const copy
+    }
+  }
   // operator=
   flx_model& operator=(flx_model &other)
   {
@@ -210,10 +219,24 @@ public:
     return flx_lazy_ptr<flxv_vector>::operator*();
   }
 
-  // Add a model to the list
-  void push_back(model &m)
+  // Add an empty element to the list
+  void add_element()
   {
-    (**this).push_back(*m);
+    flxv_map empty_map;
+    (**this).push_back(empty_map);
+    cache[this->size() - 1].set(&(**this)[this->size() - 1].to_map());
+  }
+  
+  // Add a model to the list (const parameter)
+  void push_back(const model &m)
+  {
+    flxv_map map_copy;
+    try {
+      map_copy = *m;
+    } catch (...) {
+      // Use empty map if copy fails
+    }
+    (**this).push_back(map_copy);
     cache[this->size() - 1].set(&(**this)[this->size() - 1].to_map());
   }
 

@@ -25,6 +25,7 @@ set(FLUCTURE_CORE_SOURCES
   documents/flx_doc_sio.cpp
   api/aimodels/flx_openai_api.cpp
   documents/pdf/flx_pdf_sio.cpp
+  documents/pdf/flx_pdf_text_extractor.cpp
   api/server/flx_rest_api.cpp
   api/server/flx_httpdaemon.cpp
   api/json/flx_json.cpp
@@ -33,6 +34,7 @@ set(FLUCTURE_CORE_SOURCES
   aiprocesses/flx_ai_process.cpp
 
   aiprocesses/eval/flx_ai_process_evaluator.cpp
+  aiprocesses/eval/flx_layout_evaluator.cpp
   aiprocesses/chat/flx_llm_chat.cpp
   aiprocesses/chat/flx_chat_snippet_source.cpp
   aiprocesses/snippets/flx_snippet.cpp
@@ -55,6 +57,7 @@ set(FLUCTURE_CORE_HEADERS
   # Presumably header-only or part of flx_http_request.cpp
   documents/flx_doc_sio.h
   documents/pdf/flx_pdf_sio.h
+  documents/pdf/flx_pdf_text_extractor.h
   documents/pdf/podofo_config.h # Configuration header for PoDoFo
   api/server/flx_httpdaemon.h
   api/server/flx_rest_api.h
@@ -65,6 +68,7 @@ set(FLUCTURE_CORE_HEADERS
   aiprocesses/chat/flx_llm_chat_interfaces.h
   aiprocesses/flx_ai_process.h
   aiprocesses/eval/flx_ai_process_evaluator.h
+  aiprocesses/eval/flx_layout_evaluator.h
   aiprocesses/chat/flx_llm_chat.h
   aiprocesses/chat/flx_chat_snippet_source.h
   aiprocesses/snippets/flx_snippet.h
