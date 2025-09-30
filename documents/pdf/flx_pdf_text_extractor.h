@@ -32,7 +32,7 @@ public:
     
     // Public flx-compatible functions
     bool extract_text_with_fonts(const PdfPage& page, 
-                                 std::vector<flx_layout_text>& texts);
+                                 flx_model_list<flx_layout_text>& texts);
                                  
 private:
     // Direct copy of PoDoFo internal structures and functions
@@ -43,6 +43,7 @@ private:
     class StatefulString;
     struct EntryOptions;
     struct ExtractionContext;
+    struct flx_extraction_context;
     struct XObjectState;
     struct GlyphAddress;
     
@@ -53,10 +54,10 @@ private:
     using StringChunkListPtr = std::unique_ptr<StringChunkList>;
     using TextStateStack = StateStack<TextState>;
     
-    // Core extraction function (adapted from PdfPage::ExtractTextTo)
-    void ExtractTextTo(std::vector<PdfTextEntry>& entries, const PdfPage& page) const;
-    void ExtractTextTo(std::vector<PdfTextEntry>& entries, const PdfPage& page, 
-                      const std::string_view& pattern) const;
+    // Direct extraction to flx_model_list without PdfTextEntry intermediate
+    void extract_text_directly_to(flx_model_list<flx_layout_text>& texts, const PdfPage& page) const;
+    void extract_text_directly_to(flx_model_list<flx_layout_text>& texts, const PdfPage& page, 
+                                 const std::string_view& pattern) const;
     
     // String processing functions
     static bool decodeString(const PdfString &str, TextState &state, std::string &decoded,
@@ -67,12 +68,6 @@ private:
     static void splitStringBySpaces(std::vector<StatefulString> &separatedStrings, const StatefulString &string);
     static void trimSpacesBegin(StringChunk &chunk);
     static void trimSpacesEnd(StringChunk &chunk);
-    static void addEntry(std::vector<PdfTextEntry> &textEntries, StringChunkList &strings,
-        const std::string_view &pattern, const EntryOptions &options, const nullable<Rect> &clipRect,
-        int pageIndex, const Matrix* rotation);
-    static void addEntryChunk(std::vector<PdfTextEntry> &textEntries, StringChunkList &strings,
-        const std::string_view &pattern, const EntryOptions& options, const nullable<Rect> &clipRect,
-        int pageIndex, const Matrix* rotation);
     static void processChunks(const StringChunkList& chunks, std::string& destString,
         std::vector<unsigned>& positions, std::vector<const StatefulString*>& strings,
         std::vector<GlyphAddress>& glyphAddresses);
@@ -86,9 +81,6 @@ private:
         unsigned& lowerIndex, unsigned& upperLimitIndex);
     static EntryOptions optionsFromFlags(PdfTextExtractFlags flags);
     
-    // Conversion functions from PoDoFo types to flx types
-    void convertPdfEntriesToFlxTexts(const std::vector<PdfTextEntry>& entries, 
-                                     std::vector<flx_layout_text>& texts);
 };
 
 #endif // FLX_PDF_TEXT_EXTRACTOR_H
