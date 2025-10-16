@@ -9,10 +9,11 @@ namespace flx::llm {
 
   flx_llm_chat::~flx_llm_chat() = default;
 
-  void flx_llm_chat::create_context(const flxv_map& settings) {
+  void flx_llm_chat::create_context(const flxv_map& settings, flx_string system_prompt ) {
     context = api->create_chat_context();
     if (context) {
       context->set_settings(settings);
+      context->add_message(api->create_message(message_role::SYSTEM, system_prompt));
     }
   }
 

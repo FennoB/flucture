@@ -3,6 +3,7 @@
 #include "../documents/layout/flx_layout_vertex.h"
 #include <filesystem>
 #include <fstream>
+#include <chrono>
 
 SCENARIO("PDF → Layout extraction pipeline") {
     GIVEN("An existing PDF generated from known layout") {
@@ -44,7 +45,12 @@ SCENARIO("PDF → Layout extraction pipeline") {
             REQUIRE(pdf_data.size() > 0);
             
             // Parse the generated PDF back to layout (parse() now does everything)
+            auto start_time = std::chrono::high_resolution_clock::now();
             bool parse_success = pdf_doc.parse(pdf_data);
+            auto end_time = std::chrono::high_resolution_clock::now();
+            
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "⏱️  PDF parsing took: " << duration.count() << " milliseconds" << std::endl;
             
             THEN("Basic parsing pipeline should execute without errors") {
                 REQUIRE(parse_success == true);

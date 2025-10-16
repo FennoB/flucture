@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cctype>
 
 // Wrapper around std::string to provide additional functionality
 class flx_string
@@ -202,6 +204,206 @@ public:
       res[i] = toupper(str[i]);
     }
     return res;
+  }
+
+  flx_string trim() const
+  {
+    size_t start = str.find_first_not_of(" \t\n\r\f\v");
+    if (start == std::string::npos) return flx_string();
+    size_t end = str.find_last_not_of(" \t\n\r\f\v");
+    return str.substr(start, end - start + 1);
+  }
+
+  flx_string trim_left() const
+  {
+    size_t start = str.find_first_not_of(" \t\n\r\f\v");
+    if (start == std::string::npos) return flx_string();
+    return str.substr(start);
+  }
+
+  flx_string trim_right() const
+  {
+    size_t end = str.find_last_not_of(" \t\n\r\f\v");
+    if (end == std::string::npos) return flx_string();
+    return str.substr(0, end + 1);
+  }
+
+  bool starts_with(const flx_string& prefix) const
+  {
+    return str.size() >= prefix.size() && str.substr(0, prefix.size()) == prefix.str;
+  }
+
+  bool ends_with(const flx_string& suffix) const
+  {
+    return str.size() >= suffix.size() && str.substr(str.size() - suffix.size()) == suffix.str;
+  }
+
+  flx_string left(size_t count) const
+  {
+    return str.substr(0, count);
+  }
+
+  flx_string right(size_t count) const
+  {
+    if (count >= str.size()) return *this;
+    return str.substr(str.size() - count);
+  }
+
+  flx_string mid(size_t start, size_t count = npos) const
+  {
+    return str.substr(start, count);
+  }
+
+  flx_string reverse() const
+  {
+    flx_string result = *this;
+    std::reverse(result.str.begin(), result.str.end());
+    return result;
+  }
+
+  size_t count(const flx_string& substring) const
+  {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = str.find(substring.str, pos)) != std::string::npos) {
+      count++;
+      pos += substring.size();
+    }
+    return count;
+  }
+
+  size_t count(char ch) const
+  {
+    return std::count(str.begin(), str.end(), ch);
+  }
+
+  flx_string repeat(size_t times) const
+  {
+    flx_string result;
+    for (size_t i = 0; i < times; ++i) {
+      result += *this;
+    }
+    return result;
+  }
+
+  flx_string pad_left(size_t total_width, char pad_char = ' ') const
+  {
+    if (str.size() >= total_width) return *this;
+    return flx_string(pad_char).repeat(total_width - str.size()) + *this;
+  }
+
+  flx_string pad_right(size_t total_width, char pad_char = ' ') const
+  {
+    if (str.size() >= total_width) return *this;
+    return *this + flx_string(pad_char).repeat(total_width - str.size());
+  }
+
+  flx_string pad_center(size_t total_width, char pad_char = ' ') const
+  {
+    if (str.size() >= total_width) return *this;
+    size_t pad_total = total_width - str.size();
+    size_t pad_left = pad_total / 2;
+    size_t pad_right = pad_total - pad_left;
+    return flx_string(pad_char).repeat(pad_left) + *this + flx_string(pad_char).repeat(pad_right);
+  }
+
+  flx_string join(const std::vector<flx_string>& parts) const
+  {
+    if (parts.empty()) return flx_string();
+    if (parts.size() == 1) return parts[0];
+    
+    flx_string result = parts[0];
+    for (size_t i = 1; i < parts.size(); ++i) {
+      result += *this + parts[i];
+    }
+    return result;
+  }
+
+  bool is_numeric() const
+  {
+    if (str.empty()) return false;
+    size_t start = 0;
+    if (str[0] == '-' || str[0] == '+') start = 1;
+    if (start >= str.size()) return false;
+    
+    bool has_dot = false;
+    for (size_t i = start; i < str.size(); ++i) {
+      if (str[i] == '.') {
+        if (has_dot) return false;
+        has_dot = true;
+      } else if (!std::isdigit(str[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  flx_string remove(const flx_string& substring) const
+  {
+    flx_string result = *this;
+    result.replace(substring, "");
+    return result;
+  }
+
+  flx_string remove_all(const flx_string& substring) const
+  {
+    flx_string result = *this;
+    while (result.contains(substring)) {
+      result.replace(substring, "");
+    }
+    return result;
+  }
+
+  std::vector<flx_string> lines() const
+  {
+    return split("\n");
+  }
+
+  flx_string normalize_whitespace() const
+  {
+    flx_string result;
+    bool in_whitespace = false;
+    
+    for (char c : str) {
+      if (std::isspace(c)) {
+        if (!in_whitespace) {
+          result += ' ';
+          in_whitespace = true;
+        }
+      } else {
+        result += c;
+        in_whitespace = false;
+      }
+    }
+    
+    return result.trim();
+  }
+
+  flx_string capitalize() const
+  {
+    if (str.empty()) return *this;
+    flx_string result = to_lower();
+    result[0] = std::toupper(result[0]);
+    return result;
+  }
+
+  flx_string title_case() const
+  {
+    flx_string result = to_lower();
+    bool capitalize_next = true;
+    
+    for (size_t i = 0; i < result.size(); ++i) {
+      if (std::isalpha(result[i])) {
+        if (capitalize_next) {
+          result[i] = std::toupper(result[i]);
+          capitalize_next = false;
+        }
+      } else {
+        capitalize_next = true;
+      }
+    }
+    
+    return result;
   }
 };
 

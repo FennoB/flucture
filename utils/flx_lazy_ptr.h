@@ -41,7 +41,7 @@ public:
       manage();
     }
   }
-  void clear()
+  void reset()
   {
     if (managed)
     {
@@ -84,7 +84,7 @@ public:
     {
       return;
     }
-    clear();
+    reset();
     this->ptr = ptr;
     if (managed)
     {
@@ -93,7 +93,7 @@ public:
   }
   ~flx_lazy_ptr()
   {
-    clear();
+    reset();
   }
   
   // Non-const access - creates object if null
@@ -132,7 +132,7 @@ public:
   
   flx_lazy_ptr &operator=(const flx_lazy_ptr &other)
   {
-    clear();
+    reset();
     this->ptr = other.ptr;
     if (other.managed)
     {

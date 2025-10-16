@@ -9,7 +9,6 @@
 #include <list>
 #include <regex>
 
-// Include PoDoFo headers instead of forward declarations
 #include <main/PdfPage.h>
 #include <main/PdfTextState.h>
 #include <main/PdfFont.h>
@@ -24,21 +23,17 @@
 
 using namespace PoDoFo;
 
-// Complete PDF text extraction class with full PoDoFo compatibility
 class flx_pdf_text_extractor {
 public:
     flx_pdf_text_extractor();
     ~flx_pdf_text_extractor();
-    
-    // Public flx-compatible functions
+
     bool extract_text_with_fonts(const PdfPage& page, 
                                  flx_model_list<flx_layout_text>& texts);
+    
+    static void clear_font_cache();
                                  
 private:
-    // Direct copy of PoDoFo internal structures and functions
-    
-    // 5.2 Text State Parameters and Operators
-    // 5.3 Text Objects
     struct TextState;
     class StatefulString;
     struct EntryOptions;
@@ -47,19 +42,16 @@ private:
     struct XObjectState;
     struct GlyphAddress;
     
-    // Type aliases from PoDoFo
     using StringChunk = std::list<StatefulString>;
     using StringChunkPtr = std::unique_ptr<StringChunk>;
     using StringChunkList = std::list<StringChunkPtr>;
     using StringChunkListPtr = std::unique_ptr<StringChunkList>;
     using TextStateStack = StateStack<TextState>;
     
-    // Direct extraction to flx_model_list without PdfTextEntry intermediate
     void extract_text_directly_to(flx_model_list<flx_layout_text>& texts, const PdfPage& page) const;
     void extract_text_directly_to(flx_model_list<flx_layout_text>& texts, const PdfPage& page, 
                                  const std::string_view& pattern) const;
     
-    // String processing functions
     static bool decodeString(const PdfString &str, TextState &state, std::string &decoded,
         std::vector<double> &lengths, std::vector<unsigned>& positions);
     static bool areEqual(double lhs, double rhs);

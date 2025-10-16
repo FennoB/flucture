@@ -126,6 +126,10 @@ target_link_libraries(flucture_core PUBLIC
 add_executable(flucture ${APP_MAIN_SOURCE})
 target_link_libraries(flucture PRIVATE flucture_core)
 
+# --- PDF to Layout API executable (for production use) ---
+add_executable(pdf_to_layout pdf_to_layout_api.cpp)
+target_link_libraries(pdf_to_layout PRIVATE flucture_core)
+
 # --- Installation (remains for the executable) ---
 include(GNUInstallDirs) #
 install(TARGETS flucture
@@ -153,11 +157,16 @@ if(BUILD_FLUCTURE_TESTS)
     add_executable(flucture_tests 
         tests/test_main.cpp
         ${TEST_SOURCES}
+        test_xobject_simple.cpp
     )
     target_link_libraries(flucture_tests PRIVATE flucture_core Catch2::Catch2WithMain)
 
     include(CTest)
     add_test(NAME UnitTests COMMAND flucture_tests)
+
+    # Standalone bisection test
+    add_executable(test_xobject_bisect test_xobject_bisect.cpp)
+    target_link_libraries(test_xobject_bisect PRIVATE flucture_core)
 else()
     message(STATUS "Skipping build of flucture tests (BUILD_FLUCTURE_TESTS is OFF).")
 endif()

@@ -158,6 +158,12 @@ public:
   {
     return (**this)[key];
   }
+
+  // Clear the model
+  void clear()
+  {
+    (**this).clear();
+  }
   // copy constructor
   flx_model(flx_model &other) : flx_lazy_ptr<flxv_map>(other)
   {
@@ -167,9 +173,11 @@ public:
   flx_model(const flx_model &other) : flx_lazy_ptr<flxv_map>()
   {
     try {
+      // Try to copy the actual data if available
       **this = *other;
     } catch (...) {
-      // Ignore exceptions during const copy
+      // Ignore exceptions during const copy - create empty model
+      // Base class constructor already initialized to nullptr
     }
   }
   // operator=
@@ -287,6 +295,38 @@ public:
     return at(index);
   }
 
+  // Clear the list
+  void clear()
+  {
+    (**this).clear();
+    cache.clear();
+  }
+
+  // Remove last element
+  void pop_back()
+  {
+    if (size() > 0) {
+      size_t last_index = size() - 1;
+      (**this).pop_back();
+      cache.erase(last_index);
+    }
+  }
+
+  // Assignment operator to prevent base class assignment
+  flx_model_list& operator=(const flx_model_list& other)
+  {
+    if (this != &other) {
+      try {
+        **this = *other;
+      } catch (const flx_null_access_exception&) {
+        // Clear our own vector if other is null
+        (**this).clear();
+      }
+      cache.clear();
+    }
+    return *this;
+  }
+
   static flx_model_list from_vector(flx_property<flxv_vector>& vec_prop)
   {
     flx_model_list<model> list;
@@ -302,8 +342,8 @@ public:
 #define flxp_double(name) flx_property<flxv_double> name = flx_property<flxv_double>(this, #name)
 #define flxp_vector(name) flx_property<flxv_vector> name = flx_property<flxv_vector>(this, #name)
 #define flxp_map(name) flx_property<flxv_map> name = flx_property<flxv_map>(this, #name)
-#define flxp_model(name, model_type) flxp_map(name##_map); model_type name = flx_model::from_map<model_type>(name##_map)
-#define flxp_model_list(name, model_type) flxp_vector(name##_vec); flx_model_list<model_type> name = flx_model_list<model_type>::from_vector(name##_vec)
+#define flxp_model(name, model_type) flx_property<flxv_map> name##_map = flx_property<flxv_map>(this, #name); model_type name = flx_model::from_map<model_type>(name##_map)
+#define flxp_model_list(name, model_type) flx_property<flxv_vector> name##_vec = flx_property<flxv_vector>(this, #name); flx_model_list<model_type> name = flx_model_list<model_type>::from_vector(name##_vec)
 
 #endif
 

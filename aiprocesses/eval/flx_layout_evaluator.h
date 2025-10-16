@@ -23,9 +23,12 @@ class flx_layout_evaluator {
 private:
   std::shared_ptr<i_llm_api> api;
   std::unique_ptr<flx_llm_chat> chat;
-  
+
+public:
   // Convert layout to structured text representation for AI
   flx_string layout_to_structured_text(const flx_model_list<flx_layout_geometry>& layout);
+
+private:
   flx_string geometry_to_text(const flx_layout_geometry& geom, int indent_level = 0);
   
   // Create evaluation prompt

@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <cmath>
+#include <unordered_map>
 
 #include <utf8cpp/utf8.h>
 
@@ -51,6 +52,11 @@ struct flx_pdf_text_extractor::TextState
 {
   TextState()
   {
+    // Initialize all matrices to Identity (PDF spec default)
+    T_rm = Matrix();   // Identity matrix
+    CTM = Matrix();    // Identity matrix
+    T_m = Matrix();    // Identity matrix
+    T_lm = Matrix();   // Identity matrix
     // Reset font size
     PdfState.FontSize = -1;
   }
@@ -178,6 +184,7 @@ public:
   void add_stateful_string(const StatefulString &str);
   void finalize_text_extraction();
   void add_text_entry_from_chunk(const StringChunk& chunk);
+  void add_text_entry_from_chunk_at_index(const StringChunk& chunk, size_t index);
 private:
   const PdfPage& m_page;
   flx_model_list<flx_layout_text>& m_texts;
@@ -208,16 +215,14 @@ flx_pdf_text_extractor::~flx_pdf_text_extractor() {
 bool flx_pdf_text_extractor::extract_text_with_fonts(const PdfPage& page, 
   flx_model_list<flx_layout_text>& texts) {
   try {
-    std::cout << "Starting direct text extraction to flx_model_list..." << std::endl;
-
-    // Use our custom extraction directly to flx_model_list
+    std::cout << "Starting complete PDF text extraction with fonts..." << std::endl;
     extract_text_directly_to(texts, page);
 
-    std::cout << "Successfully extracted " << texts.size() << " text entries directly to flx_model_list" << std::endl;
+    std::cout << "Successfully extracted " << texts.size() << " text entries with font information" << std::endl;
     return true;
 
   } catch (const std::exception& e) {
-    std::cout << "Direct flx_layout_text extraction failed: " << e.what() << std::endl;
+    std::cout << "Complete text extraction failed: " << e.what() << std::endl;
     return false;
   }
 }
@@ -230,22 +235,26 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
 void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_text>& texts, const PdfPage& page, 
   const std::string_view& pattern) const
 {
-  // Create context that writes directly to flx_model_list
   flx_extraction_context context(texts, page, pattern, PdfTextExtractFlags::None, { });
 
-         // Look FIGURE 4.1 Graphics objects
   PdfContentReaderArgs args;
-  args.Flags = PdfContentReaderFlags::SkipHandleNonFormXObjects; // Images are not needed for text extraction
+  args.Flags = PdfContentReaderFlags::None;
+
+  // DEBUG: Log that XObject processing is enabled
+  std::cout << "[TEXT EXTRACTION] Using PdfContentReaderFlags::None (XObjects ENABLED)" << std::endl;
+
   PdfContentStreamReader reader(page, args);
   PdfContent content;
   vector<double> lengths;
   vector<unsigned> positions;
   string decoded;
-  unsigned read_cnt = 0;
+  
+  lengths.reserve(1000);
+  positions.reserve(1000);
+  decoded.reserve(1000);
+  
   while (reader.TryReadNext(content))
   {
-    read_cnt += 1;
-
     switch (content.Type)
     {
       case PdfContentType::Operator:
@@ -320,6 +329,8 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
               context.TStar_Operator();
             }
 
+            context.States.Current->ComputeDependentState();
+
             const PdfString& str = content.Stack[content.Stack.size() - 1].GetString();
             context.States.Current->ScanString(str, decoded, lengths, positions);
             if (!decoded.empty())
@@ -337,6 +348,8 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
               const PdfVariant& variant = arr[i];
               if (variant.IsString())
               {
+                context.States.Current->ComputeDependentState();
+
                 const PdfString& str = variant.GetString();
                 context.States.Current->ScanString(str, decoded, lengths, positions);
                 if (!decoded.empty())
@@ -348,7 +361,6 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
               else if (variant.IsNumber())
               {
                 double value = variant.GetReal();
-                // NOTE: See the PDF Reference, Table 5.6 for an explanation of this formula
                 double t_j = -value / 1000.0 * context.States.Current->PdfState.FontSize * context.States.Current->PdfState.FontScale;
                 context.Tj_Operator(t_j, 0);
               }
@@ -358,7 +370,6 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
           case PdfOperator::g:
           case PdfOperator::rg:
           {
-            // Simple color handling for now
             break;
           }
           case PdfOperator::q:
@@ -381,6 +392,8 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
             context.ET_Operator();
             break;
           }
+          default:
+            break;
         }
         break;
       }
@@ -391,17 +404,13 @@ void flx_pdf_text_extractor::extract_text_directly_to(flx_model_list<flx_layout_
     }
   }
 
-         // Process any remaining text chunks
   context.finalize_text_extraction();
 }
-
-// OLD ExtractTextTo methods removed - now using extract_text_directly_to
 
 void flx_pdf_text_extractor::ExtractionContext::BeginText()
 {
   ASSERT(!BlockOpen, "Text block already open");
 
-         // NOTE: BT doesn't reset font
   BlockOpen = true;
 }
 
@@ -414,11 +423,10 @@ void flx_pdf_text_extractor::ExtractionContext::EndText()
   BlockOpen = false;
 }
 
-// Minimal implementation of old methods to maintain compatibility
 double flx_pdf_text_extractor::TextState::GetWordSpacingLength() const
 {
   if (PdfState.Font == nullptr) {
-    return 0.0;  // Default spacing when no font is set
+    return 0.0;
   }
   return PdfState.Font->GetWordSpacingLength(PdfState);
 }
@@ -426,7 +434,7 @@ double flx_pdf_text_extractor::TextState::GetWordSpacingLength() const
 double flx_pdf_text_extractor::TextState::GetSpaceCharLength() const
 {
   if (PdfState.Font == nullptr) {
-    return 0.0;  // Default spacing when no font is set
+    return 0.0;
   }
   return PdfState.Font->GetSpaceCharLength(PdfState);
 }
@@ -434,46 +442,48 @@ double flx_pdf_text_extractor::TextState::GetSpaceCharLength() const
 void flx_pdf_text_extractor::TextState::ScanString(const PdfString& encodedStr, string& decoded, vector<double>& lengths, vector<unsigned>& positions)
 {
   if (PdfState.Font == nullptr) {
-    // Font not set yet - use fallback string conversion
     decoded = encodedStr.GetString();
     lengths.clear();
     positions.clear();
     return;
   }
-  (void)PdfState.Font->TryScanEncodedString(encodedStr, PdfState, decoded, lengths, positions);
+
+  PdfState.Font->TryScanEncodedString(encodedStr, PdfState, decoded, lengths, positions);
 }
 
-// Missing method implementations for minimal functionality
 void flx_pdf_text_extractor::TextState::ComputeDependentState()
 {
-  // Simplified implementation
   ComputeSpaceDescriptors();
+  ComputeT_rm();
 }
 
 void flx_pdf_text_extractor::TextState::ComputeSpaceDescriptors()
 {
-  // Simplified implementation
   WordSpacingLength = 0.0;
   CharSpaceLength = 0.0;
 }
 
+void flx_pdf_text_extractor::TextState::ComputeT_rm()
+{
+  T_rm = T_m * CTM;
+}
+
 void flx_pdf_text_extractor::read(const PdfVariantStack& stack, double &tx, double &ty)
 {
-  tx = stack[0].GetReal();
-  ty = stack[1].GetReal();
+  tx = stack[1].GetReal();
+  ty = stack[0].GetReal();
 }
 
 void flx_pdf_text_extractor::read(const PdfVariantStack& stack, double &a, double &b, double &c, double &d, double &e, double &f)
 {
-  a = stack[0].GetReal();
-  b = stack[1].GetReal();
-  c = stack[2].GetReal();
-  d = stack[3].GetReal();
-  e = stack[4].GetReal();
-  f = stack[5].GetReal();
+  a = stack[5].GetReal();
+  b = stack[4].GetReal();
+  c = stack[3].GetReal();
+  d = stack[2].GetReal();
+  e = stack[1].GetReal();
+  f = stack[0].GetReal();
 }
 
-// StatefulString constructor implementation 
 flx_pdf_text_extractor::StatefulString::StatefulString(string&& str, const TextState& state, vector<double>&& rawLengths, vector<unsigned>&& positions)
     : String(std::move(str))
       , State(state)
@@ -487,7 +497,6 @@ flx_pdf_text_extractor::StatefulString::StatefulString(string&& str, const TextS
 
 vector<double> flx_pdf_text_extractor::StatefulString::computeLengths(const vector<double>& rawLengths)
 {
-  // Simplified implementation - just return the raw lengths
   return rawLengths;
 }
 
@@ -499,7 +508,6 @@ double flx_pdf_text_extractor::StatefulString::GetLengthRaw() const
   return total;
 }
 
-// Implementation of all missing flx_extraction_context methods
 flx_pdf_text_extractor::flx_extraction_context::flx_extraction_context(
   flx_model_list<flx_layout_text>& texts, const PdfPage& page, const string_view& pattern,
   PdfTextExtractFlags flags, const nullable<Rect>& clipRect) :
@@ -516,6 +524,10 @@ flx_pdf_text_extractor::flx_extraction_context::flx_extraction_context(
 void flx_pdf_text_extractor::flx_extraction_context::BT_Operator()
 {
   BlockOpen = true;
+
+  States.Current->T_m = Matrix();
+  States.Current->T_lm = Matrix();
+  States.Current->ComputeDependentState();
 }
 
 void flx_pdf_text_extractor::flx_extraction_context::ET_Operator()
@@ -524,24 +536,36 @@ void flx_pdf_text_extractor::flx_extraction_context::ET_Operator()
   if (!Chunk->empty())
   {
     Chunks.push_back(std::move(Chunk));
-    Chunk = std::make_unique<StringChunk>();
+    Chunk.reset(new StringChunk());
   }
+}
+
+static std::unordered_map<std::string, const PdfFont*> g_font_cache;
+
+void flx_pdf_text_extractor::clear_font_cache() {
+  g_font_cache.clear();
+  std::cout << "Static font cache cleared" << std::endl;
 }
 
 void flx_pdf_text_extractor::flx_extraction_context::Tf_Operator(const PdfName& fontname, double fontsize)
 {
   States.Current->PdfState.FontSize = fontsize;
   
-  // Try to get font from page resources (like PoDoFo does)
+  const std::string font_key(fontname.GetString());
+  
+  auto cached_font = g_font_cache.find(font_key);
+  if (cached_font != g_font_cache.end()) {
+    States.Current->PdfState.Font = cached_font->second;
+    return;
+  }
+  
   try {
     auto resources = m_page.GetResources();
     States.Current->PdfState.Font = resources.GetFont(fontname);
-    if (States.Current->PdfState.Font == nullptr) {
-      std::cout << "Warning: Unable to find font object " << fontname.GetString() << std::endl;
-    }
-  } catch (const std::exception& e) {
-    std::cout << "Warning: Failed to get font from resources: " << e.what() << std::endl;
+    g_font_cache[font_key] = States.Current->PdfState.Font;
+  } catch (...) {
     States.Current->PdfState.Font = nullptr;
+    g_font_cache[font_key] = nullptr;
   }
 }
 
@@ -601,45 +625,63 @@ void flx_pdf_text_extractor::flx_extraction_context::finalize_text_extraction()
     Chunks.push_back(std::move(Chunk));
   }
 
-  // Process all chunks and create flx_layout_text entries directly
+  size_t total_texts = 0;
+  for (const auto& chunk_ptr : Chunks) {
+    if (!chunk_ptr->empty()) {
+      total_texts++;
+    }
+  }
+  
+  size_t start_index = m_texts.size();
+  for (size_t i = 0; i < total_texts; i++) {
+    m_texts.add_element();
+  }
+
+  size_t text_index = start_index;
   for (const auto& chunk_ptr : Chunks)
   {
     if (!chunk_ptr->empty())
     {
-      add_text_entry_from_chunk(*chunk_ptr);
+      add_text_entry_from_chunk_at_index(*chunk_ptr, text_index);
+      text_index++;
     }
   }
 }
 
-void flx_pdf_text_extractor::flx_extraction_context::add_text_entry_from_chunk(const StringChunk& chunk)
+void flx_pdf_text_extractor::flx_extraction_context::add_text_entry_from_chunk_at_index(const StringChunk& chunk, size_t index)
 {
   string combined_text;
   double total_length = 0.0;
-  Vector2 position;
+  Vector2 position(0, 0);
   double font_size = 12.0;
   const PdfFont* font = nullptr;
 
-  // Combine all strings in chunk
+  size_t estimated_size = 0;
+  for (const auto& stateful_str : chunk) {
+    estimated_size += stateful_str.String.length();
+  }
+  combined_text.reserve(estimated_size);
+
+  bool first_string = true;
   for (const auto& stateful_str : chunk)
   {
     combined_text += stateful_str.String;
     total_length += stateful_str.GetLengthRaw();
-    if (combined_text.length() == stateful_str.String.length()) // First string
+    if (first_string)
     {
       position = stateful_str.Position;
       font_size = stateful_str.State.PdfState.FontSize > 0 ? stateful_str.State.PdfState.FontSize : 12.0;
       font = stateful_str.State.PdfState.Font;
+      first_string = false;
     }
   }
 
   if (!combined_text.empty())
   {
-    // Extract real font name from PdfFont object
-    string font_name = "Arial"; // Default fallback
+    string font_name = "Arial";
     if (font != nullptr) {
       try {
         font_name = font->GetName();
-        // Clean up font name (remove subset prefix like "ABCDEF+")
         size_t plus_pos = font_name.find('+');
         if (plus_pos != string::npos) {
           font_name = font_name.substr(plus_pos + 1);
@@ -649,9 +691,7 @@ void flx_pdf_text_extractor::flx_extraction_context::add_text_entry_from_chunk(c
       }
     }
     
-    // Create flx_layout_text directly - NO PdfTextEntry intermediate!
-    m_texts.add_element();
-    auto& layout_text = m_texts.back();
+    auto& layout_text = m_texts[index];
 
     layout_text.text = flx_string(combined_text.c_str());
     layout_text.x = position.X;

@@ -15,7 +15,7 @@ namespace flx::llm {
   public:
     explicit flx_llm_chat(std::shared_ptr<i_llm_api> api_impl);
     ~flx_llm_chat();
-    void create_context(const flxv_map& settings);
+    void create_context(const flxv_map& settings, flx_string system_prompt = "You are a helpful assistant.");
     void set_context(std::unique_ptr<i_llm_chat_context> new_context);
     void register_function(std::shared_ptr<i_llm_function> func);
     bool chat(const flx_string& user_message, flx_string& final_response, int max_tool_calls = 5);

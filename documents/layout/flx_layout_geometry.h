@@ -17,6 +17,7 @@ public:
   // Polygon properties
   flxp_model_list(vertices, flx_layout_vertex);
   flxp_string(fill_color);
+  flxp_string(stroke_color);
 
   flx_layout_geometry();
 

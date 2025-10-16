@@ -3,6 +3,16 @@
 #include "../client/flx_http_request.h"
 #include <iostream>
 #include <api/json/flx_json.h>
+#include <chrono>
+
+// Debug timing helper for API calls
+static auto api_debug_start = std::chrono::high_resolution_clock::now();
+
+static void api_timestamp(const std::string& label) {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - api_debug_start);
+    std::cout << "[API " << duration.count() << "ms] " << label << std::endl;
+}
 
 namespace flx::llm {
   static flx_string role_to_string(message_role role) {
@@ -117,19 +127,44 @@ namespace flx::llm {
       return nullptr;
     }
 
+    // LOGGING: Request details
+    api_timestamp("START OpenAI API Request");
+    std::cout << "\n=== OPENAI API REQUEST ===" << std::endl;
+    std::cout << "Model: " << settings.at("model").string_value().c_str() << std::endl;
+    std::cout << "Request size: " << json_body_string.length() << " chars" << std::endl;
+    std::cout << "Request body (first 500 chars):\n" << std::string(json_body_string.c_str()).substr(0, 500) << "..." << std::endl;
+    if (settings.count("temperature")) {
+      try {
+        if (settings.at("temperature").is_double()) {
+          std::cout << "Temperature setting: " << settings.at("temperature").double_value() << " (NOT sent to API!)" << std::endl;
+        } else if (settings.at("temperature").is_int()) {
+          std::cout << "Temperature setting: " << settings.at("temperature").int_value() << " (NOT sent to API!)" << std::endl;
+        }
+      } catch (...) {
+        std::cout << "Temperature setting exists but cannot be read" << std::endl;
+      }
+    }
+
     flx_http_request request("https://api.openai.com/v1/chat/completions");
     request.set_header("Content-Type", "application/json");
     request.set_header("Authorization", "Bearer " + api_key.to_std_const());
     request.set_method("POST");
     request.set_body(json_body_string.to_std());
 
+    api_timestamp("Before HTTP request.send()");
     if (!request.send() || request.get_status_code() != 200) {
       std::cerr << "HTTP Request failed: " << request.get_error_message().to_std() << std::endl;
       std::cerr << "Response Body: " << request.get_response_body().to_std() << std::endl;
       return nullptr;
     }
+    api_timestamp("After HTTP request.send()");
 
     flx_string response_body_str = request.get_response_body();
+
+    // LOGGING: Response details
+    std::cout << "\n=== OPENAI API RESPONSE ===" << std::endl;
+    std::cout << "Response size: " << response_body_str.length() << " chars" << std::endl;
+    std::cout << "Response body (first 1000 chars):\n" << std::string(response_body_str.c_str()).substr(0, 1000) << "..." << std::endl;
     flxv_map response_map;
     flx_json response_handler(&response_map);
 
@@ -137,6 +172,29 @@ namespace flx::llm {
       std::cerr << "Error: Failed to parse JSON response." << std::endl;
       return nullptr;
     }
+
+    // LOGGING: Usage information
+    if (response_map.count("usage") && response_map["usage"].is_map()) {
+      auto& usage = response_map["usage"].to_map();
+      std::cout << "\n=== API USAGE STATS ===" << std::endl;
+      if (usage.count("prompt_tokens") && usage["prompt_tokens"].is_int()) {
+        std::cout << "Prompt tokens: " << usage["prompt_tokens"].int_value() << std::endl;
+      }
+      if (usage.count("completion_tokens") && usage["completion_tokens"].is_int()) {
+        std::cout << "Completion tokens: " << usage["completion_tokens"].int_value() << std::endl;
+      }
+      if (usage.count("total_tokens") && usage["total_tokens"].is_int()) {
+        std::cout << "Total tokens: " << usage["total_tokens"].int_value() << std::endl;
+      }
+    }
+
+    // LOGGING: Model used
+    if (response_map.count("model") && response_map["model"].is_string()) {
+      std::cout << "Model actually used: " << response_map["model"].string_value().c_str() << std::endl;
+    }
+    std::cout << "========================\n" << std::endl;
+
+    api_timestamp("END OpenAI API Request");
 
     if (!response_map["choices"].is_vector() || response_map["choices"].vector_value().empty()) {
       return nullptr;

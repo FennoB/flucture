@@ -114,7 +114,11 @@ SCENARIO("flx_layout_image handles image metadata") {
 
 SCENARIO("flx_layout_geometry manages hierarchical content") {
     GIVEN("A geometry container") {
-        flx_layout_geometry container(0, 0, 300, 200);
+        flx_layout_geometry container;
+        container.x = 0.0;
+        container.y = 0.0;
+        container.width = 300.0;
+        container.height = 200.0;
         
         WHEN("Adding text elements") {
             flx_layout_text text1(10, 10, 100, 20, "Title");
@@ -143,7 +147,11 @@ SCENARIO("flx_layout_geometry manages hierarchical content") {
         }
         
         WHEN("Adding sub-geometries") {
-            flx_layout_geometry sub_container(200, 50, 80, 120);
+            flx_layout_geometry sub_container;
+            sub_container.x = 200.0;
+            sub_container.y = 50.0;
+            sub_container.width = 80.0;
+            sub_container.height = 120.0;
             sub_container.x = 200;  // Verify property access
             
             container.add_sub_geometry(sub_container);
@@ -158,7 +166,11 @@ SCENARIO("flx_layout_geometry manages hierarchical content") {
             flx_layout_text title(10, 10, 100, 20, "Document Title");
             flx_layout_image logo(200, 10, 50, 20);
             
-            flx_layout_geometry section(10, 50, 280, 140);
+            flx_layout_geometry section;
+            section.x = 10.0;
+            section.y = 50.0;
+            section.width = 280.0;
+            section.height = 140.0;
             flx_layout_text section_text(10, 10, 200, 15, "Section content");
             section.add_text(section_text);
             
