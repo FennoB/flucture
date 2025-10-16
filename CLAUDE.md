@@ -236,19 +236,19 @@ flx_model(const flx_model &other) : flx_lazy_ptr<flxv_map>() {
 
 ## Current Issues & Development Status
 
-### 🔴 XObject Text Extraction Problem (IN UNTERSUCHUNG)
+### ✅ XObject Text Extraction Problem (GELÖST - 2025-10-16)
 **Detailliertes Debug-Protokoll:** [DEBUG_PH_WERT_PROBLEM.md](DEBUG_PH_WERT_PROBLEM.md)
 
-- **Problem:** `pdf_to_layout` extrahiert nur 69 von 75 Texten auf Seite 5 (BTS 5070)
-- **Root Cause:** XObject-Texte fehlen, obwohl `PdfContentReaderFlags::None` gesetzt ist
-- **Vergleich:** `test_xobject_simple` funktioniert korrekt (75 Texte), `pdf_to_layout` nicht (69 Texte)
-- **Status:** Beide verwenden denselben Extraktionscode - Ursache unklar
-- **Nächster Schritt:** Vergleich der Aufrufkontexte und PdfPage-Instanzen
+- **Problem:** `pdf_to_layout` extrahierte nur 69 von 75 Texten auf Seite 5 (BTS 5070)
+- **Root Cause:** Statischer Font-Cache enthielt stale `PdfFont*` Pointer von vorherigen Seiten
+- **Lösung:** Per-Page Font-Cache-Clearing vor jeder Extraktion
+- **Code:** `flx_pdf_text_extractor::clear_font_cache()` in flx_pdf_sio.cpp:202
+- **Status:** ✅ VOLLSTÄNDIG GELÖST - Alle 75 Texte werden korrekt extrahiert
 
-### 🔧 PDF Text Extraction Refactoring (COMPLETED ✅)
+### ✅ PDF Text Extraction Refactoring (COMPLETED)
 - **Status:** Vollständig implementiert mit PoDoFo 1400+ Zeilen Code
 - **Features:** Font-Encoding, CMap-Tables, XObject-Support, Text-Matrix Transformationen
-- **Known Issue:** XObject-Extraktion funktioniert nicht in allen Kontexten (siehe oben)
+- **XObject-Support:** ✅ Funktioniert perfekt mit Per-Page Font-Cache-Clearing
 
 ### ✅ What Works in PDF Processing
 - **Layout → PDF rendering**: Complete with nested geometries, text, images
