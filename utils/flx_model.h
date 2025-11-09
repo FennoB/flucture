@@ -173,7 +173,6 @@ public:
   virtual size_t list_size() = 0;
   virtual flx_model* get_model_at(size_t index) = 0;  // Returns pointer to model at index
   virtual void resync() = 0;  // Must be implemented by derived classes
-  virtual void apply_xml_map_to_all() = 0;  // Apply XML mapping to all elements
 };
 
 // Abstract base class for models - enforces resync implementation
@@ -214,9 +213,6 @@ public:
 
   // Pull data from DB row - reads properties with {"column", "name"} metadata
   void read_row(const flxv_map& row);
-
-  // Apply XML mapping - reads properties with {"xml_path", "path"} metadata
-  void apply_xml_map(const flxv_map& xml_map);
 
 public:
   // Override to sync with parent before access
@@ -444,21 +440,6 @@ public:
     for (size_t i = 0; i < size(); i++) {
       model& m = at(i);  // This will populate cache
       m.resync();  // Recursively resync the model
-    }
-  }
-
-  // Apply XML mapping to all elements (implements flx_list)
-  virtual void apply_xml_map_to_all() override
-  {
-    // Iterate through all elements in the vector
-    for (size_t i = 0; i < size(); i++) {
-      model& m = at(i);  // Get cached model at index
-
-      // Get the underlying XML map for this element
-      flxv_map& element_xml = (**this)[i].to_map();
-
-      // Apply XML mapping to this model
-      m.apply_xml_map(element_xml);
     }
   }
 
