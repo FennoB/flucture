@@ -3,12 +3,12 @@
 #include <string>
 #include <vector>
 #include <iostream>
-#include <memory> // Für std::unique_ptr
+#include <memory> // Fï¿½r std::unique_ptr
 
-// Anonymer Namespace für interne Hilfsfunktionen und Callbacks
+// Anonymer Namespace fï¿½r interne Hilfsfunktionen und Callbacks
 namespace {
 
-         // Callback-Funktion für libcurl, um den Response Body zu schreiben.
+         // Callback-Funktion fï¿½r libcurl, um den Response Body zu schreiben.
          // Schreibt die empfangenen Daten in den user-data-Pointer (hier ein flx_string).
   size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t real_size = size * nmemb;
@@ -17,8 +17,8 @@ namespace {
     return real_size;
   }
 
-         // Callback-Funktion für libcurl, um die Response Header zu schreiben.
-         // Analysiert jede Header-Zeile und fügt sie der user-data-Map (flxv_map) hinzu.
+         // Callback-Funktion fï¿½r libcurl, um die Response Header zu schreiben.
+         // Analysiert jede Header-Zeile und fï¿½gt sie der user-data-Map (flxv_map) hinzu.
   size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
     size_t numbytes = size * nitems;
     flxv_map* headers = static_cast<flxv_map*>(userdata);
@@ -28,8 +28,8 @@ namespace {
     size_t colon_pos = header_line.find(":");
     if (colon_pos != flx_string::npos) {
       flx_string key = header_line.substr(0, colon_pos);
-      flx_string value = header_line.substr(colon_pos + 2); // +2, um ": " zu überspringen
-      // Zeilenumbrüche am Ende des Werts entfernen
+      flx_string value = header_line.substr(colon_pos + 2); // +2, um ": " zu ï¿½berspringen
+      // Zeilenumbrï¿½che am Ende des Werts entfernen
       size_t crlf_pos = value.find("\r\n");
       if (crlf_pos != flx_string::npos) {
         value.erase(crlf_pos);
@@ -49,7 +49,7 @@ namespace {
       }
       first = false;
 
-             // Schlüssel kodieren
+             // Schlï¿½ssel kodieren
       char* encoded_key = curl_easy_escape(curl, pair.first.to_std_const().c_str(), 0);
       if(encoded_key) {
         encoded_params += encoded_key;
@@ -74,6 +74,12 @@ namespace {
     return encoded_params;
   }
 
+  size_t file_write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t real_size = size * nmemb;
+    FILE* file = static_cast<FILE*>(userp);
+    return fwrite(contents, size, nmemb, file);
+  }
+
 } // Ende anonymer Namespace
 
 // --- Implementierung der Klassenmethoden ---
@@ -84,7 +90,7 @@ flx_http_request::flx_http_request()
 flx_http_request::flx_http_request(const flx_string& url)
     : url_(url), method_("GET"), status_code_(0) {}
 
-// Setter und Getter bleiben unverändert
+// Setter und Getter bleiben unverï¿½ndert
 void flx_http_request::set_url(const flx_string& url) { url_ = url; }
 flx_string flx_http_request::get_url() const { return url_; }
 void flx_http_request::set_method(const flx_string& method) { method_ = method; }
@@ -119,7 +125,7 @@ bool flx_http_request::send() {
     return false;
   }
 
-         // RAII-Wrapper für CURL und curl_slist, um die Freigabe zu garantieren
+         // RAII-Wrapper fï¿½r CURL und curl_slist, um die Freigabe zu garantieren
   auto curl_deleter = [](CURL* c) { if (c) curl_easy_cleanup(c); };
   auto slist_deleter = [](struct curl_slist* s) { if (s) curl_slist_free_all(s); };
 
@@ -147,10 +153,10 @@ bool flx_http_request::send() {
     curl_easy_setopt(curl.get(), CURLOPT_URL, final_url.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errbuf);
 
-    // Automatisch Redirects folgen (üblich und nützlich)
+    // Automatisch Redirects folgen (ï¿½blich und nï¿½tzlich)
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
 
-           // Callbacks für Response Body und Header setzen
+           // Callbacks fï¿½r Response Body und Header setzen
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response_body_);
     curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, header_callback);
@@ -178,7 +184,7 @@ bool flx_http_request::send() {
       curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, body_.length());
     } else if (method_upper == "DELETE") {
       curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "DELETE");
-    } else if (method_upper != "GET") { // Für andere Methoden
+    } else if (method_upper != "GET") { // Fï¿½r andere Methoden
       curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, method_upper.c_str());
     }
 
@@ -211,8 +217,129 @@ bool flx_http_request::send() {
   }
 }
 
-// Antwort-Getter bleiben unverändert
+// Antwort-Getter bleiben unverï¿½ndert
 int flx_http_request::get_status_code() const { return status_code_; }
 flx_string flx_http_request::get_response_body() const { return response_body_; }
 const flxv_map& flx_http_request::get_response_headers() const { return response_headers_; }
 flx_string flx_http_request::get_error_message() const { return error_message_; }
+
+bool flx_http_request::download_to_file(const flx_string& output_path) {
+  // 1. Reset der Antwortdaten
+  status_code_ = 0;
+  response_body_.clear();
+  response_headers_.clear();
+  error_message_.clear();
+
+  if (url_.empty()) {
+    error_message_ = "URL is empty.";
+    return false;
+  }
+
+  if (output_path.empty()) {
+    error_message_ = "Output path is empty.";
+    return false;
+  }
+
+  // 2. Datei zum Schreiben Ã¶ffnen
+  FILE* file = fopen(output_path.c_str(), "wb");
+  if (!file) {
+    error_message_ = flx_string("Failed to open output file: ") + output_path;
+    return false;
+  }
+
+  // RAII-Wrapper fÃ¼r CURL und curl_slist
+  auto curl_deleter = [](CURL* c) { if (c) curl_easy_cleanup(c); };
+  auto slist_deleter = [](struct curl_slist* s) { if (s) curl_slist_free_all(s); };
+
+  std::unique_ptr<CURL, decltype(curl_deleter)> curl(curl_easy_init(), curl_deleter);
+  if (!curl) {
+    error_message_ = "Failed to initialize libcurl.";
+    fclose(file);
+    return false;
+  }
+
+  std::unique_ptr<struct curl_slist, decltype(slist_deleter)> header_list(nullptr, slist_deleter);
+  char errbuf[CURL_ERROR_SIZE] = {0};
+
+  try {
+    // 3. URL und Parameter zusammenbauen
+    flx_string final_url = url_;
+    flx_string method_upper = method_.upper();
+    if (method_upper == "GET" && !params_.empty()) {
+      flx_string query_string = encode_params(curl.get(), params_);
+      if (!query_string.empty()) {
+        final_url += flx_string(final_url.find("?") == flx_string::npos ? "?" : "&") + query_string;
+      }
+    }
+
+    // 4. libcurl-Optionen setzen
+    curl_easy_setopt(curl.get(), CURLOPT_URL, final_url.c_str());
+    curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errbuf);
+    curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
+
+    // Callbacks fÃ¼r direktes Datei-Schreiben
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, file_write_callback);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, file);
+
+    // Response Header tracking
+    curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, header_callback);
+    curl_easy_setopt(curl.get(), CURLOPT_HEADERDATA, &response_headers_);
+
+    // 5. Request-Header setzen
+    for (const auto& pair : headers_) {
+      if (pair.second.is_string()) {
+        flx_string header_string = pair.first + ": " + pair.second.string_value();
+        header_list.reset(curl_slist_append(header_list.release(), header_string.c_str()));
+      }
+    }
+    if (header_list) {
+      curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, header_list.get());
+    }
+
+    // 6. HTTP-Methode und Body setzen
+    if (method_upper == "POST") {
+      curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body_.c_str());
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, body_.length());
+    } else if (method_upper == "PUT") {
+      curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "PUT");
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body_.c_str());
+      curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, body_.length());
+    } else if (method_upper == "DELETE") {
+      curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "DELETE");
+    } else if (method_upper != "GET") {
+      curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, method_upper.c_str());
+    }
+
+    // 7. Anfrage senden
+    CURLcode res = curl_easy_perform(curl.get());
+
+    // 8. Datei schlieÃŸen
+    fclose(file);
+
+    // 9. Ergebnis auswerten
+    if (res != CURLE_OK) {
+      error_message_ = flx_string("libcurl error: ") + curl_easy_strerror(res) + " - " + errbuf;
+      return false;
+    }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+    status_code_ = static_cast<int>(http_code);
+
+    if (http_code > 300) {
+      error_message_ = flx_string("HTTP error: ") + std::to_string(status_code_);
+    }
+
+    return status_code_ >= 200 && status_code_ < 300;
+
+  } catch (const std::exception& e) {
+    fclose(file);
+    error_message_ = flx_string("Standard Exception: ") + e.what();
+    return false;
+  } catch (...) {
+    fclose(file);
+    error_message_ = "An unknown error occurred during file download.";
+    return false;
+  }
+}

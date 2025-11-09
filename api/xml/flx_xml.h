@@ -28,6 +28,36 @@ public:
    */
   flx_string create() const;
 
+  /**
+   * @brief Liest einen Wert an einem absoluten Pfad im XML.
+   * @param path Absoluter Pfad z.B. "team/member[0]/name" oder "team/member[]"
+   * @return Pointer auf flx_variant oder nullptr wenn Pfad nicht existiert
+   * @note Unterstützt Index-Notation [0], [1] für Array-Zugriff
+   */
+  const flx_variant* read_path(const flx_string& path) const;
+
+  /**
+   * @brief Prüft ob ein Pfad Index-Platzhalter [] enthält.
+   * @param path Zu prüfender Pfad
+   * @return true wenn [] gefunden, sonst false
+   */
+  static bool has_placeholder(const flx_string& path);
+
+  /**
+   * @brief Ersetzt ersten [] Platzhalter durch konkreten Index.
+   * @param path Pfad mit Platzhalter, z.B. "team/member[]"
+   * @param index Index zum Einsetzen
+   * @return Neuer Pfad, z.B. "team/member[0]"
+   */
+  static flx_string replace_first_placeholder(const flx_string& path, size_t index);
+
+  /**
+   * @brief Entfernt ersten [] Platzhalter aus Pfad.
+   * @param path Pfad mit Platzhalter, z.B. "team/member[]"
+   * @return Pfad ohne Platzhalter, z.B. "team/member"
+   */
+  static flx_string remove_first_placeholder(const flx_string& path);
+
 private:
   flxv_map* data_map;
 };

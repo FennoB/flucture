@@ -271,3 +271,93 @@ flx_string flx_xml::create() const {
     return flx_string("");
   }
 }
+
+namespace {
+  // Helper: Navigate one step in path (map[key])
+  const flx_variant* navigate_map_key(const flx_variant* current, const flx_string& key) {
+    if (!current || current->in_state() != flx_variant::map_state) {
+      return nullptr;
+    }
+    const flxv_map& map = current->map_value();
+    if (map.find(key) == map.end()) {
+      return nullptr;
+    }
+    return &map.at(key);
+  }
+
+  // Helper: Navigate array access (vec[index])
+  const flx_variant* navigate_array_index(const flx_variant* current, size_t index) {
+    if (!current || current->in_state() != flx_variant::vector_state) {
+      return nullptr;
+    }
+    const flxv_vector& vec = current->vector_value();
+    if (index >= vec.size()) {
+      return nullptr;
+    }
+    return &vec[index];
+  }
+}
+
+const flx_variant* flx_xml::read_path(const flx_string& path) const {
+  if (!data_map || path.empty()) {
+    return nullptr;
+  }
+
+  std::vector<flx_string> parts = path.split("/");
+  const flx_variant* current = nullptr;
+
+  for (const auto& part : parts) {
+    // Erste Iteration: Von root map starten
+    if (current == nullptr) {
+      if (data_map->find(part) == data_map->end()) {
+        return nullptr;
+      }
+      current = &data_map->at(part);
+      continue;
+    }
+
+    // Check für Array-Index: "member[0]"
+    if (part.contains("[") && part.contains("]")) {
+      size_t bracket_pos = part.find("[");
+      flx_string name = part.substr(0, bracket_pos);
+      flx_string index_str = part.substr(bracket_pos + 1, part.find("]") - bracket_pos - 1);
+      size_t index = static_cast<size_t>(index_str.to_int(0));
+
+      current = navigate_map_key(current, name);
+      if (!current) return nullptr;
+
+      current = navigate_array_index(current, index);
+      if (!current) return nullptr;
+    } else {
+      current = navigate_map_key(current, part);
+      if (!current) return nullptr;
+    }
+  }
+
+  return current;
+}
+
+bool flx_xml::has_placeholder(const flx_string& path) {
+  return path.contains("[]");
+}
+
+flx_string flx_xml::replace_first_placeholder(const flx_string& path, size_t index) {
+  size_t pos = path.find("[]");
+  if (pos == flx_string::npos) {
+    return path;
+  }
+
+  flx_string result = path;
+  flx_string index_str = flx_string("[") + flx_string(static_cast<long>(index)) + "]";
+  result = result.substr(0, pos) + index_str + result.substr(pos + 2);
+  return result;
+}
+
+flx_string flx_xml::remove_first_placeholder(const flx_string& path) {
+  size_t pos = path.find("[]");
+  if (pos == flx_string::npos) {
+    return path;
+  }
+
+  return path.substr(0, pos) + path.substr(pos + 2);
+}

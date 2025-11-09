@@ -5,6 +5,9 @@
 #include "flx_variant.h"
 #include <type_traits>
 
+// Forward declarations
+class flx_xml;
+
 // Enable the advanced variant-based model system
 #define flx_variant_models
 
@@ -213,6 +216,9 @@ public:
 
   // Pull data from DB row - reads properties with {"column", "name"} metadata
   void read_row(const flxv_map& row);
+
+  // Read XML data into model using absolute paths with [] placeholders
+  void read_xml(flx_xml& xml, const flx_string& base_path);
 
 public:
   // Override to sync with parent before access

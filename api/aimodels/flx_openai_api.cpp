@@ -212,7 +212,73 @@ namespace flx::llm {
   }
 
   bool openai_api::embedding(const flx_string& text, flxv_vector& embedding) {
-    return false;
+    // Build request body
+    flxv_map request_body;
+    request_body["model"] = flx_string("text-embedding-3-large");
+    request_body["input"] = text;
+
+    // Convert to JSON
+    flx_json json_handler(&request_body);
+    flx_string json_body = json_handler.create();
+
+    if (json_body.empty()) {
+      std::cerr << "Error: Failed to create JSON request body for embedding." << std::endl;
+      return false;
+    }
+
+    // Make HTTP request
+    flx_http_request request("https://api.openai.com/v1/embeddings");
+    request.set_header("Content-Type", "application/json");
+    request.set_header("Authorization", "Bearer " + api_key.to_std_const());
+    request.set_method("POST");
+    request.set_body(json_body.to_std());
+
+    api_timestamp("START OpenAI Embedding Request");
+    std::cout << "Requesting embedding for text (length: " << text.length() << " chars)..." << std::endl;
+
+    if (!request.send() || request.get_status_code() != 200) {
+      std::cerr << "HTTP Request failed: " << request.get_error_message().to_std() << std::endl;
+      std::cerr << "Response Body: " << request.get_response_body().to_std() << std::endl;
+      return false;
+    }
+
+    api_timestamp("END OpenAI Embedding Request");
+
+    // Parse response
+    flx_string response_body = request.get_response_body();
+    flxv_map response_map;
+    flx_json response_handler(&response_map);
+
+    if (!response_handler.parse(response_body)) {
+      std::cerr << "Error: Failed to parse JSON response." << std::endl;
+      return false;
+    }
+
+    // Extract embedding from response
+    // Response format: { "data": [{ "embedding": [...], "index": 0 }], "model": "...", "usage": {...} }
+    if (!response_map.count("data") || !response_map["data"].is_vector()) {
+      std::cerr << "Error: No 'data' array in response." << std::endl;
+      return false;
+    }
+
+    flxv_vector& data_array = response_map["data"].to_vector();
+    if (data_array.empty() || !data_array[0].is_map()) {
+      std::cerr << "Error: Empty or invalid data array." << std::endl;
+      return false;
+    }
+
+    flxv_map& first_item = data_array[0].to_map();
+    if (!first_item.count("embedding") || !first_item["embedding"].is_vector()) {
+      std::cerr << "Error: No 'embedding' vector in data item." << std::endl;
+      return false;
+    }
+
+    embedding = first_item["embedding"].to_vector();
+
+    std::cout << "Successfully received embedding with " << embedding.size()
+              << " dimensions (model: text-embedding-3-large)" << std::endl;
+
+    return true;
   }
 
   flx_variant openai_api::function_to_variant(const i_llm_function& func) {

@@ -20,6 +20,12 @@ public:
   // Layout manipulation helpers
   flx_layout_geometry& add_page();
   size_t page_count() const;
+
+  // HTML export
+  flx_string page_to_html(size_t page_index);
+
+  // ASCII text layout export (like pdftotext -layout)
+  flx_string to_text_layout() const;
 };
 
 #endif // flx_DOC_SIO_H
