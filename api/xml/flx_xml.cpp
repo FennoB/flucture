@@ -73,6 +73,7 @@ namespace {
 
     // Text-Content speichern
     flx_string text_content = node.text().as_string();
+    text_content = text_content.trim();  // Trim whitespace from text content
     if (!text_content.empty()) {
       element_map[flx_string("#text")] = flx_variant(text_content);
     }

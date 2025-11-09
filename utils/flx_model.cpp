@@ -1,5 +1,6 @@
 #include "flx_model.h"
 #include "../api/xml/flx_xml.h"
+#include <iostream>
 
 #ifndef flx_variant_models
 #else
@@ -229,9 +230,8 @@ void flx_model::read_row(const flxv_map& row)
   }
 }
 
-void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
+void flx_model::read_xml_properties(flx_xml& xml, const flx_string& base_path)
 {
-  // Read properties with xml_path metadata
   for (const auto& prop_pair : props) {
     flx_property_i* prop = prop_pair.second;
     const flxv_map& meta = prop->get_meta();
@@ -247,8 +247,10 @@ void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
       }
     }
   }
+}
 
-  // Recursively read nested child models
+void flx_model::read_xml_children(flx_xml& xml, const flx_string& base_path)
+{
   for (auto& child_pair : children) {
     flx_model* child = child_pair.second;
     const flx_string& cpp_name = child_pair.first;
@@ -264,8 +266,43 @@ void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
       }
     }
   }
+}
 
-  // Read model lists
+void flx_model::read_xml_single_list(flx_xml& xml, const flx_string& base_path,
+                                      const flx_string& cpp_name, flx_list* list_ptr,
+                                      const flx_string& xml_path)
+{
+  flx_string list_path = base_path.empty() ? xml_path : base_path + "/" + xml_path;
+  flx_string list_path_no_placeholder = flx_xml::remove_first_placeholder(list_path);
+
+  const flx_variant* list_data = xml.read_path(list_path_no_placeholder);
+  if (!list_data) return;
+
+  if (list_data->in_state() == flx_variant::vector_state) {
+    // Multiple elements - iterate
+    const flxv_vector& vec = list_data->vector_value();
+    (**this)[cpp_name] = *list_data;
+    list_ptr->resync();
+
+    for (size_t i = 0; i < vec.size(); ++i) {
+      flx_string element_path = flx_xml::replace_first_placeholder(list_path, i);
+      flx_model* element_model = list_ptr->get_model_at(i);
+      element_model->read_xml(xml, element_path);
+    }
+  } else if (list_data->in_state() == flx_variant::map_state) {
+    // Single element - convert to vector
+    flxv_vector vec;
+    vec.push_back(*list_data);
+    (**this)[cpp_name] = flx_variant(vec);
+    list_ptr->resync();
+
+    flx_model* element_model = list_ptr->get_model_at(0);
+    element_model->read_xml(xml, list_path_no_placeholder);
+  }
+}
+
+void flx_model::read_xml_lists(flx_xml& xml, const flx_string& base_path)
+{
   for (auto& list_pair : model_lists) {
     const flx_string& cpp_name = list_pair.first;
 
@@ -276,46 +313,19 @@ void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
       if (meta.find("xml_path") != meta.end()) {
         flx_string xml_path = meta.at("xml_path").string_value();
 
-        // xml_path should contain [] placeholder
         if (flx_xml::has_placeholder(xml_path)) {
-          flx_string list_path = base_path.empty() ? xml_path : base_path + "/" + xml_path;
-          flx_string list_path_no_placeholder = flx_xml::remove_first_placeholder(list_path);
-
-          const flx_variant* list_data = xml.read_path(list_path_no_placeholder);
-          if (list_data) {
-            if (list_data->in_state() == flx_variant::vector_state) {
-              // Multiple elements - iterate
-              const flxv_vector& vec = list_data->vector_value();
-              for (size_t i = 0; i < vec.size(); ++i) {
-                // Store vector in model
-                if (i == 0) {
-                  (**this)[cpp_name] = *list_data;
-                  flx_list* list_ptr = list_pair.second;
-                  list_ptr->resync();
-                }
-                // Each model reads with indexed path
-                flx_string element_path = flx_xml::replace_first_placeholder(list_path, i);
-                flx_model* element_model = list_pair.second->get_model_at(i);
-                element_model->read_xml(xml, element_path);
-              }
-            } else if (list_data->in_state() == flx_variant::map_state) {
-              // Single element - convert to vector
-              flxv_vector vec;
-              vec.push_back(*list_data);
-              (**this)[cpp_name] = flx_variant(vec);
-
-              flx_list* list_ptr = list_pair.second;
-              list_ptr->resync();
-
-              // Read with path without placeholder
-              flx_model* element_model = list_ptr->get_model_at(0);
-              element_model->read_xml(xml, list_path_no_placeholder);
-            }
-          }
+          read_xml_single_list(xml, base_path, cpp_name, list_pair.second, xml_path);
         }
       }
     }
   }
+}
+
+void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
+{
+  read_xml_properties(xml, base_path);
+  read_xml_children(xml, base_path);
+  read_xml_lists(xml, base_path);
 }
 
 #endif

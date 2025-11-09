@@ -220,6 +220,15 @@ public:
   // Read XML data into model using absolute paths with [] placeholders
   void read_xml(flx_xml& xml, const flx_string& base_path);
 
+private:
+  // Helper methods for read_xml (keep each under 20 lines)
+  void read_xml_properties(flx_xml& xml, const flx_string& base_path);
+  void read_xml_children(flx_xml& xml, const flx_string& base_path);
+  void read_xml_lists(flx_xml& xml, const flx_string& base_path);
+  void read_xml_single_list(flx_xml& xml, const flx_string& base_path,
+                            const flx_string& cpp_name, flx_list* list_ptr,
+                            const flx_string& xml_path);
+
 public:
   // Override to sync with parent before access
   virtual flxv_map &operator*() override;

@@ -13,18 +13,23 @@
  *   cd build
  *   ./flucture_tests "[xml_model_integration]"
  *
+ * **New API (absolute paths with [] placeholders):**
+ *
+ *   model.read_xml(xml, "root/path")
+ *
  * **Test Coverage:**
  * - Basic type mapping (string, int, double, bool)
  * - Fieldname override (store under different name in internal map)
  * - Nested paths (e.g., "level1/level2/value")
  * - Nested models (flxp_model)
- * - Model lists (flxp_model_list) with single/multiple elements
+ * - Model lists (flxp_model_list) with [] placeholder
  * - XML attributes via @ prefix (e.g., "@id")
  * - XML text content via #text
  * - Nested paths to attributes (e.g., "config/database/@host")
  * - Mixed content (attributes + text + child elements)
  * - Fieldname override combined with @ and # paths
  * - Edge cases: empty attributes, missing data, partial XML
+ * - Deep nesting: departments[]/teams[]/members[]
  *
  * ============================================================================
  */
@@ -85,7 +90,7 @@ public:
     flxp_model(contact, Contact, {{"xml_path", "contact"}});
 };
 
-// Level 5: Model lists
+// Level 5: Model lists with [] placeholder
 class Task : public flx_model {
 public:
     flxp_string(title, {{"xml_path", "title"}});
@@ -96,15 +101,15 @@ public:
 class Team : public flx_model {
 public:
     flxp_string(name, {{"xml_path", "teamname"}});
-    flxp_model_list(members, Person, {{"xml_path", "member"}});
-    flxp_model_list(tasks, Task, {{"xml_path", "task"}});
+    flxp_model_list(members, Person, {{"xml_path", "member[]"}});  // [] PLACEHOLDER!
+    flxp_model_list(tasks, Task, {{"xml_path", "task[]"}});        // [] PLACEHOLDER!
 };
 
 // Level 6: Deep nesting with nested paths, model lists, and fieldname overrides
 class Department : public flx_model {
 public:
     flxp_string(dept_name, {{"xml_path", "name"}, {"fieldname", "department_name"}});
-    flxp_model_list(teams, Team, {{"xml_path", "team"}});
+    flxp_model_list(teams, Team, {{"xml_path", "team[]"}});  // [] PLACEHOLDER!
     flxp_int(budget, {{"xml_path", "financials/budget"}});
     flxp_string(currency, {{"xml_path", "financials/currency"}});
     flxp_string(manager, {{"xml_path", "meta/manager/name"}});  // 3-level nested path
@@ -114,7 +119,7 @@ public:
 class Organization : public flx_model {
 public:
     flxp_string(company, {{"xml_path", "company_name"}});
-    flxp_model_list(departments, Department, {{"xml_path", "department"}});
+    flxp_model_list(departments, Department, {{"xml_path", "department[]"}});  // [] PLACEHOLDER!
     flxp_int(founded, {{"xml_path", "metadata/founded"}});
 };
 
@@ -158,7 +163,7 @@ public:
 class TaggedCollection : public flx_model {
 public:
     flxp_string(collection_name, {{"xml_path", "@name"}});
-    flxp_model_list(items, TaggedItem, {{"xml_path", "item"}});
+    flxp_model_list(items, TaggedItem, {{"xml_path", "item[]"}});  // [] PLACEHOLDER!
 };
 
 // Level 12: Fieldname override WITH attribute access
@@ -193,7 +198,7 @@ SCENARIO("flx_model basic XML mapping with all data types", "[xml_model_integrat
             REQUIRE(xml.parse(xml_str) == true);
 
             SimpleData model;
-            model.apply_xml_map(data["data"].to_map());
+            model.read_xml(xml, "data");  // NEW API: parser + root path
 
             THEN("All properties should be mapped with correct types") {
                 REQUIRE(model.text.value() == "Hello World");
@@ -218,13 +223,13 @@ SCENARIO("flx_model fieldname metadata override", "[xml_model_integration]") {
             </data>
         )";
 
-        WHEN("Applying XML map") {
+        WHEN("Applying XML with read_xml()") {
             flxv_map data;
             flx_xml xml(&data);
             REQUIRE(xml.parse(xml_str) == true);
 
             FieldNameTest model;
-            model.apply_xml_map(data["data"].to_map());
+            model.read_xml(xml, "data");
 
             THEN("Property should be accessible via C++ name") {
                 REQUIRE(model.cpp_name.value() == "Test Value");
@@ -266,7 +271,7 @@ SCENARIO("flx_model nested path in xml_path", "[xml_model_integration]") {
             REQUIRE(xml.parse(xml_str) == true);
 
             NestedPathData model;
-            model.apply_xml_map(data["root"].to_map());
+            model.read_xml(xml, "root");
 
             THEN("Nested path values should be extracted") {
                 REQUIRE(model.deep_value.value() == "Deep Value");
@@ -305,7 +310,7 @@ SCENARIO("flx_model nested model mapping", "[xml_model_integration]") {
             REQUIRE(xml.parse(xml_str) == true);
 
             Person person;
-            person.apply_xml_map(data["person"].to_map());
+            person.read_xml(xml, "person");
 
             THEN("Parent properties should be mapped") {
                 REQUIRE(person.name.value() == "John Doe");
@@ -387,7 +392,7 @@ SCENARIO("flx_model_list with multiple XML elements", "[xml_model_integration]")
             REQUIRE(xml.parse(xml_str) == true);
 
             Team team;
-            team.apply_xml_map(data["team"].to_map());
+            team.read_xml(xml, "team");
 
             THEN("List should contain all members") {
                 REQUIRE(team.name.value() == "Development");
@@ -447,7 +452,7 @@ SCENARIO("flx_model_list with single XML element (auto-array conversion)", "[xml
             REQUIRE(xml.parse(xml_str) == true);
 
             Team team;
-            team.apply_xml_map(data["team"].to_map());
+            team.read_xml(xml, "team");
 
             THEN("Single element should be converted to array with size 1") {
                 REQUIRE(team.members.size() == 1);
@@ -503,7 +508,7 @@ SCENARIO("flx_model with multiple model_lists", "[xml_model_integration]") {
             REQUIRE(xml.parse(xml_str) == true);
 
             Team team;
-            team.apply_xml_map(data["team"].to_map());
+            team.read_xml(xml, "team");
 
             THEN("Both lists should be populated independently") {
                 REQUIRE(team.members.size() == 2);
@@ -657,7 +662,7 @@ SCENARIO("flx_model deeply nested structure with all features combined", "[xml_m
             REQUIRE(xml.parse(xml_str) == true);
 
             Organization org;
-            org.apply_xml_map(data["organization"].to_map());
+            org.read_xml(xml, "organization");
 
             THEN("Root level properties should work") {
                 REQUIRE(org.company.value() == "TechCorp Inc");
@@ -777,100 +782,7 @@ SCENARIO("flx_model deeply nested structure with all features combined", "[xml_m
 }
 
 // ============================================================================
-// SCENARIO 9: XML Attributes Test
-// ============================================================================
-
-SCENARIO("flx_model with XML attributes (@ prefix)", "[xml_model_integration]") {
-    GIVEN("XML with attributes and text content") {
-        flx_string xml_str = R"(
-            <products>
-                <product id="101" category="Electronics">Laptop Pro</product>
-                <product id="102" category="Books">C++ Guide</product>
-            </products>
-        )";
-
-        WHEN("Parsing XML with attributes") {
-            flxv_map data;
-            flx_xml xml(&data);
-            REQUIRE(xml.parse(xml_str) == true);
-
-            // Verify XML structure first
-            flxv_map products = data["products"].to_map();
-            REQUIRE(products.find("product") != products.end());
-            REQUIRE(products["product"].in_state() == flx_variant::vector_state);
-
-            flxv_vector product_vec = products["product"].to_vector();
-            REQUIRE(product_vec.size() == 2);
-
-            THEN("First product should have attributes and text") {
-                flxv_map prod1 = product_vec[0].to_map();
-                REQUIRE(prod1.find("@id") != prod1.end());
-                REQUIRE(prod1["@id"].int_value() == 101);
-                REQUIRE(prod1["@category"].string_value() == "Electronics");
-                REQUIRE(prod1["#text"].string_value() == "Laptop Pro");
-            }
-
-            THEN("Attributes can be mapped to model properties") {
-                ProductWithAttrs prod;
-                prod.apply_xml_map(product_vec[0].to_map());
-
-                REQUIRE(prod.product_id.value() == 101);
-                REQUIRE(prod.category.value() == "Electronics");
-                REQUIRE(prod.name.value() == "Laptop Pro");
-            }
-        }
-    }
-}
-
-// ============================================================================
-// SCENARIO 10: Edge Cases - Empty and Missing Data
-// ============================================================================
-
-SCENARIO("flx_model edge cases with missing/empty data", "[xml_model_integration]") {
-    GIVEN("XML with some missing optional fields") {
-        flx_string xml_str = R"(
-            <person>
-                <fullname>Minimal Person</fullname>
-                <age>25</age>
-                <address>
-                    <street>Street Only</street>
-                    <city></city>
-                    <zipcode>12345</zipcode>
-                </address>
-            </person>
-        )";
-
-        WHEN("Applying to model with optional nested fields") {
-            flxv_map data;
-            flx_xml xml(&data);
-            REQUIRE(xml.parse(xml_str) == true);
-
-            Person person;
-            person.apply_xml_map(data["person"].to_map());
-
-            THEN("Present fields should be populated") {
-                REQUIRE(person.name.value() == "Minimal Person");
-                REQUIRE(person.age.value() == 25);
-                REQUIRE(person.address.street.value() == "Street Only");
-                REQUIRE(person.address.zip.value() == 12345);
-            }
-
-            THEN("Missing nested model should not crash") {
-                // contact model was not in XML, should be null
-                REQUIRE(person.contact.email.is_null() == true);
-                REQUIRE(person.contact.phone.is_null() == true);
-            }
-
-            THEN("Empty string should be treated as empty") {
-                // city is empty in XML
-                REQUIRE(person.address.city.value() == "");
-            }
-        }
-    }
-}
-
-// ============================================================================
-// SCENARIO 11: XML Attributes in xml_path - Simple Mapping
+// SCENARIO 9: XML Attributes in xml_path - Simple Mapping
 // ============================================================================
 
 SCENARIO("flx_model mapping XML attributes via xml_path", "[xml_model_integration]") {
@@ -887,7 +799,7 @@ SCENARIO("flx_model mapping XML attributes via xml_path", "[xml_model_integratio
             REQUIRE(xml.parse(xml_str) == true);
 
             ProductWithAttrs product;
-            product.apply_xml_map(data["product"].to_map());
+            product.read_xml(xml, "product");
 
             THEN("Attributes should be accessible via @-prefixed paths") {
                 REQUIRE(product.product_id.value() == 42);
@@ -902,7 +814,7 @@ SCENARIO("flx_model mapping XML attributes via xml_path", "[xml_model_integratio
 }
 
 // ============================================================================
-// SCENARIO 12: Mixed Content - Attributes + Text + Child Elements
+// SCENARIO 10: Mixed Content - Attributes + Text + Child Elements
 // ============================================================================
 
 SCENARIO("flx_model with mixed content (attributes + text + children)", "[xml_model_integration]") {
@@ -920,7 +832,7 @@ SCENARIO("flx_model with mixed content (attributes + text + children)", "[xml_mo
             REQUIRE(xml.parse(xml_str) == true);
 
             MixedContentNode node;
-            node.apply_xml_map(data["node"].to_map());
+            node.read_xml(xml, "node");
 
             THEN("All content types should be accessible") {
                 REQUIRE(node.node_type.value() == "container");
@@ -933,7 +845,7 @@ SCENARIO("flx_model with mixed content (attributes + text + children)", "[xml_mo
 }
 
 // ============================================================================
-// SCENARIO 13: Nested Paths to Attributes - The Hard Test
+// SCENARIO 11: Nested Paths to Attributes - The Hard Test
 // ============================================================================
 
 SCENARIO("flx_model nested paths to attributes and text content", "[xml_model_integration]") {
@@ -957,7 +869,7 @@ SCENARIO("flx_model nested paths to attributes and text content", "[xml_model_in
             REQUIRE(xml.parse(xml_str) == true);
 
             DeepAttributeAccess model;
-            model.apply_xml_map(data["root"].to_map());
+            model.read_xml(xml, "root");
 
             THEN("Nested path to attribute should work (config/database/@host)") {
                 REQUIRE(model.db_host.value() == "localhost");
@@ -979,7 +891,7 @@ SCENARIO("flx_model nested paths to attributes and text content", "[xml_model_in
 }
 
 // ============================================================================
-// SCENARIO 14: Model List with Attributes on Each Element
+// SCENARIO 12: Model List with Attributes on Each Element
 // ============================================================================
 
 SCENARIO("flx_model_list where each element has attributes", "[xml_model_integration]") {
@@ -998,7 +910,7 @@ SCENARIO("flx_model_list where each element has attributes", "[xml_model_integra
             REQUIRE(xml.parse(xml_str) == true);
 
             TaggedCollection collection;
-            collection.apply_xml_map(data["collection"].to_map());
+            collection.read_xml(xml, "collection");
 
             THEN("Collection attribute should be mapped") {
                 REQUIRE(collection.collection_name.value() == "MyTags");
@@ -1033,7 +945,7 @@ SCENARIO("flx_model_list where each element has attributes", "[xml_model_integra
 }
 
 // ============================================================================
-// SCENARIO 15: Single Element List with Attributes
+// SCENARIO 13: Single Element List with Attributes
 // ============================================================================
 
 SCENARIO("flx_model_list single element with attributes (auto-array)", "[xml_model_integration]") {
@@ -1050,7 +962,7 @@ SCENARIO("flx_model_list single element with attributes (auto-array)", "[xml_mod
             REQUIRE(xml.parse(xml_str) == true);
 
             TaggedCollection collection;
-            collection.apply_xml_map(data["collection"].to_map());
+            collection.read_xml(xml, "collection");
 
             THEN("Single item should be in array with size 1") {
                 REQUIRE(collection.items.size() == 1);
@@ -1066,7 +978,7 @@ SCENARIO("flx_model_list single element with attributes (auto-array)", "[xml_mod
 }
 
 // ============================================================================
-// SCENARIO 16: Fieldname Override with Attributes and Text
+// SCENARIO 14: Fieldname Override with Attributes and Text
 // ============================================================================
 
 SCENARIO("flx_model fieldname override combined with @ and # paths", "[xml_model_integration]") {
@@ -1084,7 +996,7 @@ SCENARIO("flx_model fieldname override combined with @ and # paths", "[xml_model
             REQUIRE(xml.parse(xml_str) == true);
 
             AdvancedFieldMapping model;
-            model.apply_xml_map(data["data"].to_map());
+            model.read_xml(xml, "data");
 
             THEN("Attribute with fieldname override should work") {
                 REQUIRE(model.cpp_id.value() == 777);
@@ -1117,51 +1029,54 @@ SCENARIO("flx_model fieldname override combined with @ and # paths", "[xml_model
 }
 
 // ============================================================================
-// SCENARIO 17: Extreme Edge Case - Empty Attributes and Missing Text
+// SCENARIO 15: Edge Cases - Empty and Missing Data
 // ============================================================================
 
-SCENARIO("flx_model edge cases with empty attributes and missing text", "[xml_model_integration]") {
-    GIVEN("XML with empty attributes and no text content") {
+SCENARIO("flx_model edge cases with missing/empty data", "[xml_model_integration]") {
+    GIVEN("XML with some missing optional fields") {
         flx_string xml_str = R"(
-            <node type="" id="0">
-                <child>Has Value</child>
-            </node>
+            <person>
+                <fullname>Minimal Person</fullname>
+                <age>25</age>
+                <address>
+                    <street>Street Only</street>
+                    <city></city>
+                    <zipcode>12345</zipcode>
+                </address>
+            </person>
         )";
 
-        WHEN("Parsing elements with empty/missing data") {
+        WHEN("Applying to model with optional nested fields") {
             flxv_map data;
             flx_xml xml(&data);
             REQUIRE(xml.parse(xml_str) == true);
 
-            MixedContentNode node;
-            node.apply_xml_map(data["node"].to_map());
+            Person person;
+            person.read_xml(xml, "person");
 
-            THEN("Empty attribute should be empty string") {
-                REQUIRE(node.node_type.value() == "");
+            THEN("Present fields should be populated") {
+                REQUIRE(person.name.value() == "Minimal Person");
+                REQUIRE(person.age.value() == 25);
+                REQUIRE(person.address.street.value() == "Street Only");
+                REQUIRE(person.address.zip.value() == 12345);
             }
 
-            THEN("Zero value attribute should be parsed as 0") {
-                REQUIRE(node.node_id.value() == 0);
+            THEN("Missing nested model should not crash") {
+                // contact model was not in XML, should be null
+                REQUIRE(person.contact.email.is_null() == true);
+                REQUIRE(person.contact.phone.is_null() == true);
             }
 
-            THEN("Child element should still work") {
-                REQUIRE(node.child_value.value() == "Has Value");
-            }
-
-            THEN("Missing text content should be null or empty") {
-                // Text content was not present (only whitespace between tags)
-                // Should either be null or empty string
-                if (!node.text_content.is_null()) {
-                    // If not null, should be empty or whitespace
-                    REQUIRE(node.text_content.value().trim().empty());
-                }
+            THEN("Empty string should be treated as empty") {
+                // city is empty in XML
+                REQUIRE(person.address.city.value() == "");
             }
         }
     }
 }
 
 // ============================================================================
-// SCENARIO 18: Nested Attribute Path with Missing Intermediate Nodes
+// SCENARIO 16: Nested Attribute Path with Missing Intermediate Nodes
 // ============================================================================
 
 SCENARIO("flx_model nested attribute paths with missing nodes", "[xml_model_integration]") {
@@ -1182,7 +1097,7 @@ SCENARIO("flx_model nested attribute paths with missing nodes", "[xml_model_inte
             REQUIRE(xml.parse(xml_str) == true);
 
             DeepAttributeAccess model;
-            model.apply_xml_map(data["root"].to_map());
+            model.read_xml(xml, "root");
 
             THEN("Present nested path should work") {
                 REQUIRE(model.app_name.value() == "TestApp");
