@@ -23,6 +23,7 @@ set(FLUCTURE_CORE_SOURCES
   documents/layout/flx_layout_vertex.cpp
   documents/layout/flx_layout_geometry.cpp
   documents/flx_doc_sio.cpp
+  documents/flx_layout_to_html.cpp
   api/aimodels/flx_openai_api.cpp
   documents/pdf/flx_pdf_sio.cpp
   documents/pdf/flx_pdf_text_extractor.cpp
@@ -30,6 +31,11 @@ set(FLUCTURE_CORE_SOURCES
   api/server/flx_httpdaemon.cpp
   api/json/flx_json.cpp
   api/client/flx_http_request.cpp
+  api/db/pg_connection.cpp
+  api/db/pg_query.cpp
+  api/db/db_query_builder.cpp
+  api/db/db_search_criteria.cpp
+  api/db/flx_semantic_embedder.cpp
   aiprocesses/chat/flx_llm_api.cpp
   aiprocesses/flx_ai_process.cpp
 
@@ -39,6 +45,7 @@ set(FLUCTURE_CORE_SOURCES
   aiprocesses/chat/flx_chat_snippet_source.cpp
   aiprocesses/snippets/flx_snippet.cpp
   aiprocesses/snippets/flx_snippet_source.cpp
+  api/xml/flx_xml.cpp
 )
 
 set(FLUCTURE_CORE_HEADERS
@@ -52,6 +59,7 @@ set(FLUCTURE_CORE_HEADERS
   documents/layout/flx_layout_image.h
   documents/layout/flx_layout_vertex.h
   documents/layout/flx_layout_geometry.h
+  documents/flx_layout_to_html.h
   api/json/json.hpp # Header-only library
   api/aimodels/flx_openai_api.h
   # Presumably header-only or part of flx_http_request.cpp
@@ -64,6 +72,14 @@ set(FLUCTURE_CORE_HEADERS
   documents/pdf/flx_pdf_coords.h
   api/json/flx_json.h
   api/client/flx_http_request.h
+  api/db/db_connection.h
+  api/db/db_query.h
+  api/db/db_query_builder.h
+  api/db/db_search_criteria.h
+  api/db/db_repository.h
+  api/db/flx_semantic_embedder.h
+  api/db/pg_connection.h
+  api/db/pg_query.h
   aiprocesses/chat/flx_llm_api.h
   aiprocesses/chat/flx_llm_chat_interfaces.h
   aiprocesses/flx_ai_process.h
@@ -73,13 +89,14 @@ set(FLUCTURE_CORE_HEADERS
   aiprocesses/chat/flx_chat_snippet_source.h
   aiprocesses/snippets/flx_snippet.h
   aiprocesses/snippets/flx_snippet_source.h
+  api/xml/flx_xml.h
 )
 
 # --- PoDoFo Setup ---
 # These settings are specific for the PoDoFo build.
-set(PODOFO_BUILD_LIB_ONLY TRUE CACHE BOOL "" FORCE) #
-set(PODOFO_BUILD_STATIC TRUE CACHE BOOL "" FORCE) #
-add_subdirectory(${CMAKE_SOURCE_DIR}/documents/pdf/podofo-master) #
+set(PODOFO_BUILD_LIB_ONLY TRUE CACHE BOOL "" FORCE)
+set(PODOFO_BUILD_STATIC TRUE CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/documents/pdf/podofo-master)
 
 # --- OpenCV ---
 find_package(OpenCV REQUIRED) #
@@ -89,6 +106,13 @@ find_package(CURL REQUIRED) #
 
 # openssl
 find_package(OpenSSL REQUIRED) #
+
+# libpqxx (PostgreSQL C++ client library)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PQXX REQUIRED libpqxx)
+
+# pugixml (XML parser library)
+pkg_check_modules(PUGIXML REQUIRED pugixml)
 
 # --- flucture_core Library ---
 add_library(flucture_core ${FLUCTURE_CORE_SOURCES} ${FLUCTURE_CORE_HEADERS})
@@ -104,6 +128,8 @@ target_include_directories(flucture_core PUBLIC
   ${OpenCV_INCLUDE_DIRS} #
   ${CURL_INCLUDE_DIRS} #
   ${OPENSSL_INCLUDE_DIR} #
+  ${PQXX_INCLUDE_DIRS} #
+  ${PUGIXML_INCLUDE_DIRS} #
 )
 
 # Library paths for libmicrohttpd (an Imported Target would be more modern)
@@ -120,6 +146,8 @@ target_link_libraries(flucture_core PUBLIC
   ${OpenCV_LIBS} #
   CURL::libcurl  #
   OpenSSL::SSL   #
+  ${PQXX_LIBRARIES} #
+  ${PUGIXML_LIBRARIES} #
 )
 
 # --- flucture executable ---
@@ -129,6 +157,7 @@ target_link_libraries(flucture PRIVATE flucture_core)
 # --- PDF to Layout API executable (for production use) ---
 add_executable(pdf_to_layout pdf_to_layout_api.cpp)
 target_link_libraries(pdf_to_layout PRIVATE flucture_core)
+
 
 # --- Installation (remains for the executable) ---
 include(GNUInstallDirs) #
@@ -154,19 +183,14 @@ if(BUILD_FLUCTURE_TESTS)
     file(GLOB TEST_SOURCES "tests/test_*.cpp")
     
     # Add main test runner (contains CATCH_CONFIG_MAIN)
-    add_executable(flucture_tests 
+    add_executable(flucture_tests
         tests/test_main.cpp
         ${TEST_SOURCES}
-        test_xobject_simple.cpp
     )
     target_link_libraries(flucture_tests PRIVATE flucture_core Catch2::Catch2WithMain)
 
     include(CTest)
     add_test(NAME UnitTests COMMAND flucture_tests)
-
-    # Standalone bisection test
-    add_executable(test_xobject_bisect test_xobject_bisect.cpp)
-    target_link_libraries(test_xobject_bisect PRIVATE flucture_core)
 else()
     message(STATUS "Skipping build of flucture tests (BUILD_FLUCTURE_TESTS is OFF).")
 endif()

@@ -1,586 +1,1100 @@
 # Flucture Project Documentation
 
-## Project Vision & Strategy
+## Quick Reference
 
-### AI Evaluation System for Layout Extraction
-The primary goal is building a **Round-Trip Test System** for AI-based document layout extraction:
+### Common Tasks
+```bash
+# Build project
+cd build && cmake .. && make
 
-1. **Ground Truth Creation**: Start with known Layout structures (flx_layout_*) ✅
-2. **PDF Generation**: Layout → PDF ✅ Complete
-3. **AI Extraction**: PDF → Layout ✅ Complete (with placeholder content removal)
-4. **AI Evaluator**: Compare original vs. extracted structures with quantitative metrics ✅ Complete
+# Run all tests
+./flucture_tests
 
-This creates **synthetic training data** and **evaluation benchmarks** for layout extraction AI:
-- **Controlled test scenarios** with perfect ground truth
-- **Quantitative metrics** for structure accuracy, position precision, hierarchy correctness
-- **Training datasets** for AI models without relying on unknown/unverified PDFs
-- **Systematic evaluation** of extraction quality across different document types
+# Run fast unit tests only (5 seconds)
+./flucture_tests "~[db]~[slow]~[integration]~[ai]"
 
-The AI Evaluator provides:
-- Layout structure semantic similarity (0.0-1.0 scores)
-- Coordinate accuracy with 5px tolerance (95%+ for minor variations)
-- Hierarchical nesting correctness ("what is inside what")
-- Component-specific scores (text extraction, geometry detection, image placement)
-- Detailed AI-generated reports explaining differences
+# Run specific test
+./flucture_tests "flx_datetime"
 
-### PDF → Layout Extraction Strategy
-Comprehensive 7-step process for reverse-engineering PDF structure:
+# List all tests
+./flucture_tests --list-tests
+```
 
-**Phase 1: Content Extraction**
-0. **PDF Memory Copy**: Create working copy of PDF in memory with PoDoFo
-1. **Text/Image Extraction**: Use PoDoFo API to extract all texts and images into separate lists
+### Where to Find What
 
-**Phase 2: Geometry Isolation** 
-2. **Content Removal**: Strip texts and images from PDF copy to isolate pure geometric shapes
-3. **Clean Rendering**: Render cleaned PDF pages to images for computer vision processing
+**Need to understand/modify...**
+- **Model system & properties** → `utils/flx_model.h`, `utils/flx_variant.h`
+- **Layout structures** → `documents/layout/flx_layout_*.h`
+- **PDF rendering** → `documents/pdf/flx_pdf_sio.h` (method: `render()`)
+- **PDF parsing** → `documents/pdf/flx_pdf_sio.h` (method: `parse()`)
+- **Text extraction from PDF** → `documents/pdf/flx_pdf_text_extractor.h`
+- **AI layout evaluation** → `aiprocesses/eval/flx_layout_evaluator.h`
+- **Database ORM** → `api/db/db_repository.h`, `api/db/pg_connection.h`
+- **OpenAI integration** → `api/aimodels/flx_openai_api.h`
+- **HTTP server** → `api/server/flx_rest_api.h`
+- **String utilities** → `utils/flx_string.h`
+- **DateTime handling** → `utils/flx_datetime.h`
+- **Test examples** → `tests/test_*.cpp`
+- **Build configuration** → `CMakeLists.txt`
 
-**Phase 3: Advanced Region Detection**
-4. **OpenCV Processing**: Open rendered pages with OpenCV for contour analysis
-5. **Flood-Fill Algorithm**: Custom color-coherent region detection using neighbor-by-neighbor color comparison (NOT traditional findContours). Creates binary masks for each color-coherent region, allowing gradients by comparing only adjacent pixels. Implements flood-fill that maintains "already processed" binary mask.
-6. **Polygon Extraction**: Apply contour detection to binary masks for precise polygon boundaries
+### Key Documentation Files
+- **This file (CLAUDE.md)**: Architecture, guidelines, API reference
+- **tests/README.md**: Complete test system documentation
+- **DEBUG_PH_WERT_PROBLEM.md**: XObject font-cache debugging case study (historical)
+- **CHANGELOG.md**: Version history and breaking changes
 
-**Phase 4: Hierarchical Reconstruction**
-6. **Containment Analysis**: Sort geometry objects into hierarchy using recursive sibling containment checking
-7. **Content Assignment**: Recursively sort extracted texts and images into appropriate geometry containers based on spatial relationships
+---
 
-This approach ensures clean separation of geometric shapes from text artifacts and handles color gradients gracefully.
+## Project Overview
 
-## Core Architecture
+### Vision & Purpose
+**AI-powered PDF layout extraction framework** with bidirectional round-trip capabilities:
+
+1. **Layout → PDF**: Render complex layouts to PDF (nested geometries, polygons, text, images)
+2. **PDF → Layout**: Extract semantic structure from PDFs (text with fonts, images, geometry hierarchy)
+3. **AI Evaluator**: Quantitatively evaluate extraction quality (0.0-1.0 scores)
+
+**Use Cases:**
+- **Synthetic training data**: Generate PDFs with perfect ground truth for AI training
+- **Extraction benchmarking**: Quantitative evaluation of layout extraction accuracy
+- **Document processing**: Semantic understanding of PDF structure
+- **Round-trip testing**: Verify Layout → PDF → Layout preserves structure
+
+### Current Capabilities (Production-Ready ✅)
+- ✅ **PDF Rendering**: Complete with 4+ level hierarchies, polygons, fonts, images
+- ✅ **PDF Text Extraction**: Full PoDoFo 1400+ line implementation with font information
+- ✅ **XObject Support**: Per-page font-cache clearing prevents corruption
+- ✅ **AI Evaluation**: GPT-4 based quantitative scoring system
+- ✅ **Database ORM**: PostgreSQL integration with hierarchical CRUD
+- ✅ **REST API**: HTTP server with JSON/XML support
+- ✅ **Semantic Search**: Vector embeddings with OpenAI
+
+### Technology Stack
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| **PDF Processing** | PoDoFo (embedded static lib) | 1.0.0 |
+| **Computer Vision** | OpenCV | System version |
+| **AI Evaluation** | OpenAI GPT-4 | gpt-4-turbo-preview |
+| **Database** | PostgreSQL (libpqxx) | System version |
+| **HTTP Server** | libmicrohttpd | Embedded |
+| **HTTP Client** | libcurl | System version |
+| **Testing** | Catch2 | v3.6.0 |
+| **XML Parsing** | pugixml | System version |
+| **C++ Standard** | C++17 | Required |
+
+---
+
+## Architecture Guide
+
+### Core Framework: flx_model
+
+**Variant-based model system** with automatic property management:
+
+```cpp
+class MyModel : public flx_model {
+public:
+    flxp_int(id);                          // Properties declared with macros
+    flxp_string(name);                     // Work like normal variables
+    flxp_double(score);                    // Automatic null handling
+    flxp_bool(active);
+    flxp_model(child, ChildModel);         // Nested models
+    flxp_model_list(items, ItemModel);     // Collections of models
+};
+
+// Usage - natural syntax
+MyModel model;
+model.id = 42;                             // Assignment works naturally
+model.name = "Test";                       // No function calls needed
+long long value = model.id;               // Direct access
+
+// Null checking
+if (model.name.is_null()) { /*...*/ }
+
+// Const-correctness
+const MyModel& const_ref = model;
+// const_ref.id; // Throws flx_null_field_exception if null
+```
+
+**Key Characteristics:**
+- **Properties are variables**: Use `x = 5.0` not `x(5.0)`
+- **Lazy initialization**: Non-const access creates defaults, const throws on null
+- **Variant storage**: flx_variant handles type conversions internally
+- **Reference counting**: flx_lazy_ptr for efficient memory management
+- **No const_cast**: ABSOLUTELY FORBIDDEN - framework incompatible
+
+### Layout System
+
+**Hierarchical document structure** with AABB containment:
+
+```
+flx_layout_bounds (x, y, width, height)
+├── flx_layout_text (text content + font properties)
+├── flx_layout_image (image path + metadata)
+├── flx_layout_vertex (polygon vertex point)
+└── flx_layout_geometry (container + visual element)
+    ├── texts: flx_model_list<flx_layout_text>
+    ├── images: flx_model_list<flx_layout_image>
+    ├── sub_geometries: flx_model_list<flx_layout_geometry>
+    └── vertices: flx_model_list<flx_layout_vertex>
+```
+
+**Design Principles:**
+- **Dual-purpose geometry**: Can be empty container OR polygon with fill_color
+- **No stroke properties**: Removed (difficult for OpenCV detection)
+- **Containment-based**: "What is inside what" using AABB intersection
+- **Detectable properties only**: Only include what both rendering AND detection can handle
+
+### Document Processing Pipeline
+
+**PDF → Layout Extraction** (7-step process in `flx_pdf_sio::parse()`):
+
+```cpp
+// Step 1: Load PDF into memory
+m_pdf->LoadFromBuffer(buffer);
+
+// Step 2: Extract text/images from ORIGINAL (before modifications)
+extract_texts_and_images(extracted_texts, extracted_images);
+
+// Step 3: Create working copy for geometry isolation
+auto pdf_copy = create_pdf_copy();
+
+// Step 4: Remove text/images from copy (isolate pure geometry)
+remove_texts_and_images_from_copy(pdf_copy.get());
+
+// Step 5: Render cleaned PDF to images for OpenCV
+render_clean_pdf_to_images(pdf_copy.get(), clean_images);
+
+// Step 6: Detect color-coherent regions (flood-fill algorithm)
+detect_color_regions(page_image);
+
+// Step 7: Build hierarchy and assign content
+build_geometry_hierarchy(root_geometries);
+assign_content_to_geometries(texts, images, geometries);
+```
+
+**Critical Timing:** Text extraction MUST happen immediately after loading (before any serialization/copying) to prevent font corruption.
+
+---
+
+## File Structure & Navigation
+
+### Project Directory Layout
+
+```
+/home/fenno/Projects/flucture/
+├── utils/                    # Core framework (15 files)
+│   ├── flx_model.{h,cpp}    # Property system & variant-based models
+│   ├── flx_variant.{h,cpp}  # Type-safe variant storage
+│   ├── flx_lazy_ptr.h       # Reference-counted lazy pointers
+│   ├── flx_string.{h,cpp}   # Enhanced string with 20+ utilities
+│   └── flx_datetime.{h,cpp} # UTC datetime with millisecond precision
+│
+├── documents/                # Document processing
+│   ├── layout/              # Layout structure classes
+│   │   ├── flx_layout_bounds.{h,cpp}      # Base: position/size + AABB
+│   │   ├── flx_layout_text.{h,cpp}        # Text + font properties
+│   │   ├── flx_layout_image.{h,cpp}       # Image + metadata
+│   │   ├── flx_layout_vertex.{h,cpp}      # Polygon vertex
+│   │   └── flx_layout_geometry.{h,cpp}    # Hierarchical container
+│   │
+│   ├── pdf/                 # PDF processing
+│   │   ├── flx_pdf_sio.{h,cpp}            # Main: parse() & render()
+│   │   ├── flx_pdf_text_extractor.{h,cpp} # 1400+ line PoDoFo integration
+│   │   ├── flx_pdf_coords.h               # Coordinate conversions
+│   │   └── podofo-master/                 # Embedded PoDoFo 1.0.0 source
+│   │
+│   ├── flx_doc_sio.{h,cpp}  # Base document serialization class
+│   └── flx_layout_to_html.{h,cpp}         # HTML export (alternative)
+│
+├── api/                      # API integrations
+│   ├── aimodels/            # AI model APIs
+│   │   └── flx_openai_api.{h,cpp}         # OpenAI GPT-4 integration
+│   │
+│   ├── db/                  # Database ORM
+│   │   ├── db_repository.h              # Generic repository pattern
+│   │   ├── db_connection.h, db_query.h  # Abstract interfaces
+│   │   ├── pg_connection.{h,cpp}        # PostgreSQL implementation
+│   │   ├── pg_query.{h,cpp}             # Query execution
+│   │   ├── db_query_builder.{h,cpp}     # SQL builder
+│   │   ├── db_search_criteria.{h,cpp}   # Search filters
+│   │   └── flx_semantic_embedder.{h,cpp} # Vector embeddings
+│   │
+│   ├── server/              # HTTP server
+│   │   ├── flx_httpdaemon.{h,cpp}       # libmicrohttpd wrapper
+│   │   ├── flx_rest_api.{h,cpp}         # REST endpoint handling
+│   │   └── libmicrohttpd_x86_64/        # Embedded server library
+│   │
+│   ├── client/              # HTTP client
+│   │   └── flx_http_request.{h,cpp}     # libcurl wrapper
+│   │
+│   ├── json/                # JSON processing
+│   │   ├── flx_json.{h,cpp}             # JSON ↔ flx_model conversion
+│   │   └── json.hpp                     # nlohmann/json header-only
+│   │
+│   └── xml/                 # XML processing
+│       └── flx_xml.{h,cpp}              # XML ↔ flx_model conversion
+│
+├── aiprocesses/              # AI-powered processes
+│   ├── eval/                # Evaluation systems
+│   │   ├── flx_layout_evaluator.{h,cpp} # AI layout comparison
+│   │   └── flx_ai_process_evaluator.{h,cpp} # Generic evaluator
+│   │
+│   ├── chat/                # LLM chat integration
+│   │   ├── flx_llm_api.h                # LLM interface
+│   │   ├── flx_llm_chat.{h,cpp}         # Chat session management
+│   │   ├── flx_llm_chat_interfaces.h    # Message interfaces
+│   │   └── flx_chat_snippet_source.{h,cpp} # Context retrieval
+│   │
+│   ├── snippets/            # Code snippet management
+│   │   ├── flx_snippet.{h,cpp}          # Snippet model
+│   │   └── flx_snippet_source.{h,cpp}   # Snippet storage
+│   │
+│   └── flx_ai_process.{h,cpp}           # Base AI process class
+│
+├── tests/                    # Catch2 test suite (30+ files)
+│   ├── test_main.cpp        # Catch2 main runner
+│   ├── test_flx_model.cpp   # [unit] Model system tests
+│   ├── test_flx_datetime.cpp # [unit] DateTime tests
+│   ├── test_layout_classes.cpp # [unit] Layout structure tests
+│   ├── test_pdf_rendering.cpp # [pdf] PDF generation tests
+│   ├── test_pdf_parsing.cpp # [pdf] PDF extraction tests
+│   ├── test_layout_evaluator.cpp # [ai] AI evaluation tests
+│   ├── test_db_repository.cpp # [db] Database ORM tests
+│   └── README.md            # Complete test documentation
+│
+├── build/                    # CMake build output
+├── main.cpp                  # Executable entry point
+├── CMakeLists.txt           # Build configuration
+└── CLAUDE.md                # This file
+```
+
+### Build Configuration
+
+**CMakeLists.txt** defines:
+- `flucture_core` library (all sources except main.cpp)
+- `flucture` executable (links against flucture_core)
+- `pdf_to_layout` API executable
+- `flucture_tests` test runner (auto-discovers test_*.cpp)
+
+**Key Build Variables:**
+```cmake
+CMAKE_CXX_STANDARD 17
+PODOFO_BUILD_STATIC TRUE
+BUILD_FLUCTURE_TESTS ON
+```
+
+---
+
+## Development Guidelines
+
+### Critical Rules ⚠️
+
+#### ABSOLUTE PROHIBITIONS
+
+1. **❌ NEVER use `const_cast`**
+   - Framework is const-incompatible
+   - Leads to undefined behavior and segfaults
+   - **Solution**: Accept non-const references, use mutable members, refactor API
+
+2. **❌ NEVER use PoDoFo `ExtractTextTo()` methods**
+   - Causes memory management issues and segfaults
+   - **Solution**: Use custom `flx_pdf_text_extractor` with direct content stream parsing
+
+3. **❌ NEVER create dummy/fallback implementations**
+   - Hides real problems
+   - All issues must be properly solved
+   - No "Added dummy text" or placeholder code
+
+4. **❌ NEVER skip pre-commit hooks**
+   - No `--no-verify` or `--no-gpg-sign` unless explicitly requested
+
+#### REQUIRED PRACTICES
+
+1. **✅ Properties work like normal variables**
+   ```cpp
+   model.x = 5.0;        // ✅ Correct
+   model.x(5.0);         // ❌ Wrong
+
+   double val = model.x; // ✅ Correct
+   double val = model.x(); // ❌ Wrong
+   ```
+
+2. **✅ Use double literals in tests**
+   ```cpp
+   REQUIRE(bounds.x == 10.0);  // ✅ Correct
+   REQUIRE(bounds.x == 10);    // ❌ Type ambiguity
+   ```
+
+3. **✅ Check working directory before file operations**
+   ```bash
+   pwd  # Check first
+   # Adjust paths accordingly (project root vs build/)
+   ```
+
+4. **✅ Extract PDF text IMMEDIATELY after loading**
+   - Before any PDF copying/serialization
+   - Prevents font data corruption
+
+5. **✅ Always read API headers before using libraries**
+   - Check method signatures, parameter types, return types
+   - Prevents compilation errors
+
+### Testing Framework
+
+**See `tests/README.md` for complete documentation.**
+
+**Quick Test Commands:**
+```bash
+cd build
+
+# Fast unit tests (5 sec)
+./flucture_tests "~[db]~[slow]~[integration]~[ai]"
+
+# Database tests
+export DB_HOST=localhost DB_PORT=5432 DB_NAME=test_db DB_USER=test DB_PASS=test
+./flucture_tests "[db]~[slow]"
+
+# AI evaluation tests
+export OPENAI_API_KEY="sk-..."
+./flucture_tests "[ai]"
+
+# Full suite
+./flucture_tests "~[disabled]"
+```
+
+**Test Tags:**
+- `[unit]` - Fast (<1s), no external dependencies
+- `[db]` - Requires PostgreSQL
+- `[ai]`, `[llm]` - Requires OpenAI API
+- `[slow]` - Takes >5 seconds
+- `[integration]` - External services
+- `[pdf]`, `[evaluator]`, `[e2e]` - Feature-specific
+
+**Test Structure:**
+```cpp
+#include <catch2/catch_all.hpp>
+
+SCENARIO("Feature description", "[unit]") {
+    GIVEN("Initial state") {
+        // Setup
+
+        WHEN("Action performed") {
+            // Execute
+
+            THEN("Expected result") {
+                REQUIRE(condition);
+            }
+        }
+    }
+}
+```
+
+### Build System
+
+**Standard build process:**
+```bash
+cd /home/fenno/Projects/flucture
+mkdir -p build
+cd build
+cmake ..
+make -j$(nproc)
+```
+
+**CMake auto-discovers:**
+- All `test_*.cpp` files in `tests/`
+- All source files listed in `FLUCTURE_CORE_SOURCES`
+
+**Adding new files:**
+1. Add `.cpp` to `FLUCTURE_CORE_SOURCES` in CMakeLists.txt
+2. Add `.h` to `FLUCTURE_CORE_HEADERS` in CMakeLists.txt
+3. Create corresponding test file `tests/test_*.cpp` (auto-discovered)
+4. Re-run `cmake ..` to update build configuration
+
+### Event-Driven Documentation Rules
+
+**When completing major features:**
+1. Update CLAUDE.md with new architecture details
+2. Document new API patterns and gotchas
+3. Create git commit with descriptive message
+4. Run full test suite to verify
+5. **Immediately start next major topic** (maintain momentum)
+
+**When learning new APIs:**
+1. Read header files first
+2. Document learnings in CLAUDE.md
+3. Update relevant sections (don't create new ones)
+
+**When changing file structure:**
+1. Update CMakeLists.txt
+2. Update "File Structure & Navigation" in CLAUDE.md
+3. Update include statements in dependent files
+
+**Before each commit:**
+1. Run test suite: `cd build && make && ./flucture_tests`
+2. Update CLAUDE.md if architecture changed
+3. Ensure all tests pass
+
+---
+
+## API Reference
 
 ### flx_model Framework
-The project uses a custom model system with variant-based properties:
 
-- **Properties are declared with macros**: `flxp_double(x)`, `flxp_int(count)`, `flxp_string(name)`
-- **Properties work like normal variables**: Use `x = 5.0` not `x(5.0)`, and `double val = x` not `double val = x()`
-- **Properties have automatic null handling**: Accessing null properties throws `flx_null_field_exception`
-- **Models inherit from flx_model**: Which is a lazy pointer to flxv_map for storage
-- **Nested models**: Use `flxp_model(child, ChildType)` and `flxp_model_list(items, ItemType)`
-- **Const-correctness**: Non-const access creates defaults, const access throws on null
-- **Reference assignment**: `auto& ref = model.prop; ref = value;` works naturally
-
-### Layout System Classes
-- **flx_layout_bounds**: Base class with position/size (x, y, width, height) and AABB containment methods
-- **flx_layout_text**: Text elements with content, font properties (font_family, font_size, color, bold, italic)
-- **flx_layout_image**: Image elements with metadata (image_path, description, mime_type, original_width/height)
-- **flx_layout_geometry**: Hierarchical containers with flx_model_list for texts, images, and sub_geometries
-
-### Coordinate System
-- **PDF coordinates**: Points (1/72 inch) converted via `flx_coords::pdf_to_png_coord(coord, dpi)`
-- **Containment principle**: "What is inside what" using AABB intersection methods
-- **No page property**: Layout classes don't track page numbers directly
-
-## Development Approach
-- Test-driven development with Catch2 framework
-- "From ground up" design - no legacy compatibility constraints  
-- Minimal comments in code - documentation generated before commits
-- Consistent naming: `flx_layout_*` for all layout classes
-
-## File Structure
-- `utils/`: Core framework (flx_model, flx_variant, flx_lazy_ptr, flx_string)
-- `documents/layout/`: Layout detection classes (flx_layout_bounds, flx_layout_text, flx_layout_image, flx_layout_geometry)
-- `documents/pdf/`: PDF-specific processing and coordinate conversion (flx_pdf_coords.h)
-- `documents/pdf/podofo-master/`: Embedded PoDoFo 1.0.0 library source
-- `tests/`: Catch2 tests with auto-discovery, uses SCENARIO/GIVEN/WHEN/THEN structure
-- `build/`: Generated build files (created by cmake)
-
-## Library Versions & Build Configuration
-- **PoDoFo**: Version 1.0.0 (Major: 1, Minor: 0, Patch: 0)
-  - **Build**: Static library (`PODOFO_BUILD_STATIC TRUE`)
-  - **Location**: `documents/pdf/podofo-master/` (embedded source)
-  - **Include Paths**: 
-    - `documents/pdf/podofo-master/src`
-    - `documents/pdf/podofo-master/src/podofo` 
-  - **Link**: `podofo::podofo` target
-- **OpenCV**: For computer vision processing (`${OpenCV_LIBS}`)
-- **Catch2**: Version v3.6.0 for testing framework
-- **C++ Standard**: C++17 required
-- **Other Dependencies**: libcurl, OpenSSL, freetype, libmicrohttpd
-
-## Testing Framework
-- **Catch2**: Uses `#include <catch2/catch_all.hpp>`
-- **Structure**: SCENARIO("description") with GIVEN/WHEN/THEN blocks
-- **Assertions**: REQUIRE() for conditions, REQUIRE_THROWS_AS() for exceptions
-- **Auto-discovery**: CMake finds all `test_*.cpp` files automatically
-- **Main runner**: `test_main.cpp` with `#define CATCH_CONFIG_MAIN`
-
-## Rules
-
-### EVENT: Learning new concepts or making architectural changes
-- Update CLAUDE.md with new understanding
-- Document API changes and implementation details
-- Update file structure documentation if changed
-
-### EVENT: Creating new classes or files
-- Add .cpp and .h files to CMakeLists.txt SOURCES and HEADERS sections
-- Create corresponding Catch2 tests in tests/ directory
-- Run full test suite to verify integration
-
-### EVENT: Deleting or renaming files
-- Remove file references from CMakeLists.txt
-- Update include statements in dependent files
-- Clean up any obsolete documentation references
-
-### EVENT: Making major code changes
-- Always run tests after implementation: `cd build && cmake .. && make && ./flucture_tests`
-- Verify all tests pass before proceeding
-- Update tests if behavior has intentionally changed
-
-### EVENT: Adding new dependencies or libraries
-- Update CMakeLists.txt target_link_libraries section
-- Add include directories if needed
-- Document new dependency in file structure section
-
-### EVENT: Completing a major topic or feature
-- Update CLAUDE.md with new learnings and implementation details
-- Document any new API patterns, architectural decisions, or gotchas discovered
-- Create a git commit with descriptive message summarizing the completed work
-- Ensure all tests pass before committing
-- **Immediately start the next major topic** - maintain momentum and continue development
-
-### EVENT: Before each commit
-- Generate documentation for new code
-- Ensure minimal inline comments (documentation is external)
-- Run full test suite to verify stability
-- Update CLAUDE.md with current project status and developments
-
-### EVENT: After major developments or status changes
-- **Update ALL relevant CLAUDE.md files** to reflect current information state
-- Keep project documentation synchronized across all related repositories
-- Document new features, resolved issues, and current blockers
-
-### EVENT: When using file system commands
-- **Always check current working directory first** with `pwd`
-- Adjust file paths accordingly (project root vs build directory)
-- Working directory is typically `/home/fenno/Projects/flucture/build`
-
-## Important Implementation Details
-- Use `long long` internally but support `int` literals via SFINAE template magic
-- Exception-based null access handling for const-correctness
-- Properties use operator overloading for natural syntax
-- Lazy pointer pattern with reference counting for memory management
-- flx_model_list::push_back() handles models without explicit copying
-- Use `double` literals in tests (e.g., `10.0` not `10`) to avoid type ambiguity with property comparisons
-- flx_model_list requires non-const references for push_back operations
-
-## Model System Updates
-
-### Const Copy Constructor
-Added const copy constructor to `flx_model` for STL compatibility:
+**Property Declaration Macros:**
 ```cpp
-flx_model(const flx_model &other) : flx_lazy_ptr<flxv_map>() {
-  try {
-    **this = *other;
-  } catch (...) {
-    // Ignore exceptions during const copy
-  }
+flxp_int(name)                    // long long storage, supports int literals
+flxp_double(name)                 // double precision floating point
+flxp_bool(name)                   // boolean
+flxp_string(name)                 // flx_string with 20+ utility methods
+flxp_vector(name)                 // flxv_vector (variant vector)
+flxp_map(name)                    // flxv_map (variant map)
+flxp_model(name, Type)            // Nested model
+flxp_model_list(name, Type)       // Collection of models
+```
+
+**Property Access:**
+```cpp
+// Non-const access (creates default if null)
+model.property = value;
+auto& ref = model.property;
+type val = model.property.value();
+
+// Const access (throws if null)
+const Model& const_ref = model;
+// const_ref.property.value();  // Throws flx_null_field_exception if null
+
+// Null checking
+if (model.property.is_null()) { /*...*/ }
+
+// Arrow operator for property methods
+if (model.name->empty()) { /*...*/ }
+const char* str = model.name->c_str();
+```
+
+**Model Lists:**
+```cpp
+flxp_model_list(items, ItemType);
+
+// Adding elements
+ItemType item;
+item.name = "Test";
+items.push_back(item);           // Accepts const references
+
+// Or create empty and access via back()
+items.add_element();
+items.back().name = "Test";
+
+// Iteration
+for (auto& item : items) {
+    std::cout << item.name.value() << "\n";
 }
 ```
 
-### Model List API Enhancement
-- **push_back(const model&)**: Accepts const references for STL compatibility
-- **add_element()**: Creates empty element, access via `back()`
-- **Dual API Support**: Both patterns work for flexibility
+**Exceptions:**
+- `flx_null_field_exception` - Thrown when accessing null property in const context
+- `flx_null_access_exception` - Thrown when dereferencing null lazy pointer
 
-### Property Access
-- **Arrow operator**: Use `property->empty()` for flx_property checks
-- **Direct access**: `property->c_str()` for string properties
-- **Automatic sync**: Properties sync with parent before access
+### PoDoFo PDF API
 
-## Recent Fixes
-- **Nested model_list access**: Fixed by implementing parent property sync system - models and model_lists now automatically sync with their parent properties before data access
-- **Virtual operator* overrides**: Added to flx_model and flx_model_list to sync with parent before accessing underlying data
-- **STL Compatibility**: Added const copy constructor for std::map and std::vector compatibility
-- **Property Access**: Implemented arrow operator for direct property method access
+**Includes:**
+```cpp
+#include <podofo/podofo.h>
+using namespace PoDoFo;
+```
 
-## New Core Components (September 2025)
+**Document Creation:**
+```cpp
+PdfMemDocument pdf;
+PdfPage& page = pdf.GetPages().CreatePage(PdfPage::CreateStandardPageSize(PdfPageSize::A4));
+PdfPainter painter;
+painter.SetCanvas(page);
+```
 
-### flx_datetime System ✅ COMPLETE
-- **Millisecond precision** with `std::chrono::milliseconds` 
-- **UTC internal storage** with local time input/output conversion
-- **Implicit flx_string conversion** for seamless flx_variant integration
-- **Exception-based validation** with `flx_datetime_exception`
-- **Complete aidooDateTime API** ported with improved naming
-- **64 test assertions** across 7 scenarios - all passing
-- **ISO 8601 compliance** with millisecond support
-- **DST handling** via automatic `tm_isdst = -1` detection
+**Text Rendering:**
+```cpp
+// CRITICAL: Must set color explicitly
+painter.GraphicsState.SetNonStrokingColor(PdfColor(0, 0, 0));
 
-### flx_duration Class ✅ COMPLETE  
-- **Type-safe time spans** with factory methods (days, hours, minutes, seconds, milliseconds)
-- **Arithmetic operators** for duration calculations
-- **Conversion methods** to various time units
+PdfFont* font = pdf.GetFonts().SearchFont("Arial");
+painter.TextState.SetFont(*font, 12.0);
+painter.DrawText("Text content", x, y);
+```
 
-### Enhanced flx_string ✅ COMPLETE
-- **20+ new utility functions**: trim, pad, case manipulation, search operations
-- **String validation**: is_numeric, starts_with, ends_with
-- **Text processing**: normalize_whitespace, title_case, remove_all
-- **Collection operations**: join, split, count, lines
+**Polygon Rendering:**
+```cpp
+PdfPainterPath path;
+path.MoveTo(x1, y1);
+path.AddLineTo(x2, y2);
+path.AddLineTo(x3, y3);
+path.Close();
 
-## ⚠️ KRITISCHE IMPLEMENTIERUNGSREGELN ⚠️
+// Set fill color (RGB 0.0-1.0)
+painter.GraphicsState.SetNonStrokingColor(PdfColor(r, g, b));
+painter.DrawPath(path, PdfPathDrawMode::Fill);
+```
 
-### 🚫 ABSOLUT VERBOTEN in unserer Implementierung:
-1. ❌ `ExtractTextTo()` Methoden von PoDoFo dürfen NIEMALS verwendet werden
-2. ❌ `PdfTextEntry` Strukturen dürfen NIEMALS erstellt oder verwendet werden  
-3. ❌ Jede Zwischenschritt über PdfTextEntry ist VERBOTEN
-4. ❌ **DUMMY/FALLBACK LÖSUNGEN SIND VERBOTEN** - Alle Probleme müssen richtig gelöst werden
-5. ❌ Keine "Added dummy text" oder andere Placeholder-Implementierungen
+**Image Rendering:**
+```cpp
+auto pdf_image = pdf.CreateImage();
+pdf_image->LoadFromBuffer(bufferview);
 
-**GRUND**: PdfTextEntry verursacht Memory Management Probleme und Segfaults. Dummys verstecken echte Probleme.
+// Y-coordinate conversion (PDF uses bottom-left origin)
+double pdf_y = page_height - layout_y - image_height;
+double scale_x = desired_width / original_width;
+double scale_y = desired_height / original_height;
 
-### ✅ ERFORDERLICH: Vollständige echte Implementation
-- ✅ Arbeite direkt mit PoDoFo's PdfContentStreamReader 
-- ✅ Parse PDF Operatoren (BT/ET, Tf, Tj/TJ) direkt
-- ✅ Erstelle flx_layout_text Objekte sofort bei Text-Discovery
-- ✅ Füge Font/Farb-Informationen während des Parsings hinzu
-- ✅ **Löse alle InvalidDataType und andere Fehler komplett**
-- ✅ **Echte PDF Text-Extraktion ohne Fallbacks**
+painter.DrawImage(*pdf_image, x, pdf_y, scale_x, scale_y);
+```
 
-## Current Issues & Development Status
+**Content Stream Parsing:**
+```cpp
+PdfContentStreamReader reader(&page);
 
-### ✅ XObject Text Extraction Problem (GELÖST - 2025-10-16)
-**Detailliertes Debug-Protokoll:** [DEBUG_PH_WERT_PROBLEM.md](DEBUG_PH_WERT_PROBLEM.md)
+// Custom callback
+struct TextExtractor : public PdfContentStreamReader::IStreamHandler {
+    void OnOperator(const std::string& op, const PdfArray& args) override {
+        if (op == "BT") { /* Begin text */ }
+        if (op == "Tf") { /* Set font */ }
+        if (op == "Tj") { /* Show text */ }
+    }
+};
 
-- **Problem:** `pdf_to_layout` extrahierte nur 69 von 75 Texten auf Seite 5 (BTS 5070)
-- **Root Cause:** Statischer Font-Cache enthielt stale `PdfFont*` Pointer von vorherigen Seiten
-- **Lösung:** Per-Page Font-Cache-Clearing vor jeder Extraktion
-- **Code:** `flx_pdf_text_extractor::clear_font_cache()` in flx_pdf_sio.cpp:202
-- **Status:** ✅ VOLLSTÄNDIG GELÖST - Alle 75 Texte werden korrekt extrahiert
+TextExtractor extractor;
+reader.Read(extractor);
+```
 
-### ✅ PDF Text Extraction Refactoring (COMPLETED)
-- **Status:** Vollständig implementiert mit PoDoFo 1400+ Zeilen Code
-- **Features:** Font-Encoding, CMap-Tables, XObject-Support, Text-Matrix Transformationen
-- **XObject-Support:** ✅ Funktioniert perfekt mit Per-Page Font-Cache-Clearing
-
-### ✅ What Works in PDF Processing
-- **Layout → PDF rendering**: Complete with nested geometries, text, images
-- **PDF loading and basic parsing**: Working without crashes
-- **AI Layout Evaluator**: Functional for comparing extracted vs original layouts
-- **Geometry extraction pipeline**: Architecture in place but dependent on text extraction fix
-
-### Next Steps
-1. **Debug segfault** in flx_pdf_text_extractor memory management
-2. **Complete PDF → Layout pipeline** with full text/font/color extraction
-3. **Generate complete JSON** with all layout information for external tools
-
-## PDF Text Extraction with Font Information
-
-### Custom Text Extractor Implementation
-Created `flx_pdf_text_extractor` to extract text with font size and font family information:
-
-**Key Components:**
-- **Enhanced Text Entry Structure**: `flx_pdf_text_entry` extends basic text with font metadata
-- **Content Stream Processing**: Uses `PdfContentStreamReader` to parse PDF operators
-- **Font State Tracking**: Monitors `Tf` (font) operators to capture font changes
-- **Text Operator Handling**: Processes `Tj`, `'`, `"` operators for text content
-
-**PDF Operator Support:**
-- `BT/ET`: Begin/End text blocks
-- `Tf`: Set font name and size (fontname size Tf)
-- `Tj`: Show text string 
-- `'`, `"`: Text with positioning/spacing
-- `TJ`: Text array with individual glyph positioning (TODO)
-
-**Font Family Detection:**
-- Basic mapping for common fonts (Arial, Times, Courier, Helvetica)
-- Extracts font name from `PdfFont` object via `font->GetName()`
-- Fallback to "Arial" for unmapped or missing fonts
-
-**Known Limitations:**
-- Text positioning not fully implemented (requires text matrix tracking)
-- TJ operator (text arrays) not yet supported
-- Font data corruption issues when using PDF memory copies
-- **Critical Issue**: Font data becomes corrupted when PDFs are serialized/reloaded
-- **Workaround**: Pipeline structure implemented without actual text extraction
-
-**Current Status:**
-- ✅ Complete PDF → Layout parsing pipeline structure implemented
-- ✅ PDF memory copy creation working
-- ✅ Basic geometry isolation framework in place
-- ❌ Text extraction disabled due to font corruption
-- ⏳ Next: Implement PDF content removal for geometry isolation
-
-## PoDoFo PDF API Learnings
-
-### Polygon/Shape Rendering
-- **Path Creation**: Use `PdfPainterPath` class, not direct painter methods
-- **Path Operations**: 
-  - `path.MoveTo(x, y)` - Start path at point
-  - `path.AddLineTo(x, y)` - Add line to point
-  - `path.Close()` - Close path
-- **Drawing**: `painter.DrawPath(path, PdfPathDrawMode::Fill)` for filled shapes
-- **Draw Modes**: `PdfPathDrawMode::Fill`, `::Stroke`, `::StrokeFill`, etc.
-
-### Color Management
-- **Private Methods**: `painter.SetNonStrokingColor()` is private - cannot use directly
-- **GraphicsState Access**: `painter.GraphicsState` is wrapper, not direct struct
-- **Color Setting**: Complex API - needs further investigation for proper color support
-- **Temporary Solution**: Skip color setting for initial implementation
-
-### Document Serialization
-- **Buffer Output**: Use `StandardStreamDevice` with `std::stringstream`
-- **Save Method**: `m_pdf->Save(StandardStreamDevice(buffer))` works correctly
-- **Memory Management**: Always clean up PdfMemDocument* properly
-
-### Forward Declarations
-- **Header Files**: Use forward declarations for PoDoFo classes in headers
-- **Required**: `namespace PoDoFo { class PdfMemDocument; class PdfPainter; }`
-- **Include Strategy**: Include full headers only in .cpp files
-
-## Polygon-Based Geometry System
-
-### New Classes
-- **flx_layout_vertex**: Simple point class with x,y properties
-- **Enhanced flx_layout_geometry**: Now supports both container AND visual element
-- **Dual Purpose**: Can be empty container OR polygon with fill_color
-
-### Design Decisions
-- **No stroke properties**: stroke_color/stroke_width removed (OpenCV detection difficulty)
-- **Focus on detectables**: Only properties that CV can reliably extract
-- **Vertex-based**: Arbitrary polygons supported via vertex list
-- **Format-agnostic**: Pages property moved to base flx_doc_sio class
-
-### OpenCV Considerations
-- **Easy to detect**: fill_color (dominant color in region), vertices (contour detection)
-- **Hard to detect**: stroke_color (edge analysis), stroke_width (line thickness measurement)
-- **Future bidirectional mapping**: Only include properties we can both render AND detect
-
-## Image Rendering System
-
-### PoDoFo Image Integration
-- **Image Creation**: `m_pdf->CreateImage()` returns unique_ptr<PdfImage>
-- **Loading**: `pdf_image->LoadFromBuffer(bufferview)` from file data
-- **Drawing**: `painter.DrawImage(*pdf_image, x, y, width, height)` with positioning
-- **File Support**: PNG, JPEG via PoDoFo's built-in codecs
+**Document Serialization:**
+```cpp
+std::stringstream buffer;
+StandardStreamDevice device(buffer);
+pdf.Save(device);
+std::string pdf_data = buffer.str();
+```
 
 ### OpenCV Integration
-- **Validation**: `cv::imread()` for image loading validation
-- **Metadata**: Extract original dimensions (width, height) from cv::Mat
-- **Future**: Direct cv::Mat to PoDoFo conversion for processed images
-- **Strategy**: File-based approach (load file → PoDoFo) vs pixel-based (cv::Mat → buffer)
 
-### Implementation Strategy
-- **Clean separation**: flx_layout_image stores metadata, rendering loads file
-- **Error handling**: Graceful fallbacks when images missing/corrupt
-- **Memory efficient**: No cv::Mat storage in layout model
-- **Format agnostic**: PoDoFo handles format detection automatically
-
-## Complete PDF Rendering System
-
-### Text Rendering Over Polygons
-- **Critical Fix**: Text must have explicit color set with `painter.GraphicsState.SetNonStrokingColor(PdfColor(0,0,0))`
-- **Z-Order Issue**: Without explicit color, text can appear behind filled polygons
-- **PDF Graphics State**: Text and polygon fills share the same graphics state, requiring color resets
-
-### Image Positioning and Scaling
-- **Coordinate System**: PDF uses bottom-left origin, layout system uses top-left
-- **Y-Coordinate Conversion**: `pdf_y = 842.0 - layout_y - image_height` for A4 pages
-- **Scaling API**: PoDoFo uses `DrawImage(image, x, y, scaleX, scaleY)` not width/height
-- **Scale Calculation**: `scale = desired_size / original_image_size`
-
-### Polygon Color Rendering
-- **Fill Color API**: Use `painter.GraphicsState.SetNonStrokingColor(PdfColor)` for polygon fills
-- **Color Parsing**: Convert hex strings (#RRGGBB) to PdfColor with RGB values 0.0-1.0
-- **Rendering Order**: Polygons → Sub-geometries → Text → Images for correct layering
-
-### Deep Nested Structures
-- **4-Level Hierarchies**: Successfully tested with sidebar → bands → dots → accents
-- **Color Variations**: Each level can have different fill colors creating complex visual patterns
-- **Performance**: Nested rendering scales well with recursive `render_geometry_to_page()`
-
-## Complete PDF Text Extraction Implementation
-
-### Major Achievement: Full PoDoFo Integration
-Successfully copied the entire 1400+ line `PdfPage_TextExtraction.cpp` implementation from PoDoFo into our custom `flx_pdf_text_extractor` class:
-
-- ✅ **Complete Font-Encoding Support**: CMap tables, composite fonts, glyph-to-Unicode mapping
-- ✅ **All "Wild" PDF Text Formats**: Hex strings, character codes, embedded encodings, subsetting
-- ✅ **Precise Text Matrix Transformations**: Correct positioning calculations with CTM and text matrices
-- ✅ **Full PDF Operator Support**: BT/ET, Tf, Tj/TJ/Quote/DoubleQuote, Tm/Td/TD/T*
-- ✅ **StatefulString Processing**: Character widths, glyph positions, proper UTF-8 handling
-- ✅ **Hierarchical XObject Support**: Form XObjects and complex PDF structures
-
-### Implementation Architecture
-- **Single Class Design**: All PoDoFo structures refactored as nested structs/classes
-- **Public flx-Compatible API**: `extract_text_with_fonts(PdfPage, vector<flx_layout_text>)`
-- **Private PoDoFo Implementation**: Direct copy of original extraction logic
-- **Conversion Layer**: `convertPdfEntriesToFlxTexts()` maps PoDoFo::PdfTextEntry to flx_layout_text
-
-### Key Classes Copied
+**Image Loading:**
 ```cpp
-struct TextState {
-    Matrix T_rm, CTM, T_m, T_lm;  // Text transformation matrices
-    PdfTextState PdfState;        // Font, size, spacing
-    void ScanString(...);         // Character-level string processing
-};
+#include <opencv2/opencv.hpp>
 
-class StatefulString {
-    const string String;
-    const vector<double> Lengths, RawLengths;
-    const vector<unsigned> StringPositions;  // Glyph positions
-};
+cv::Mat image = cv::imread(path, cv::IMREAD_COLOR);
+if (image.empty()) { /* error */ }
 
-struct ExtractionContext {
-    TextStateStack States;        // Graphics state stack
-    StringChunkList Chunks;       // Text collection system
-};
+int width = image.cols;
+int height = image.rows;
 ```
 
-### Critical Font Data Issue Solved
-- **Root Cause**: Font corruption occurred during PDF serialization/copying operations
-- **Solution**: Extract text IMMEDIATELY after PDF loading, before any modifications
-- **Architecture**: Text extraction now happens in `parse()` method before any PDF copying
-
-## Complete PDF → Layout Extraction Pipeline
-
-### Refactored Architecture: parse() Does Everything
-Completely restructured the PDF processing to be semantically correct:
-
-**Before**: `parse()` only loaded PDF, `parse_to_layout()` did extraction
-**After**: `parse()` does complete PDF → Layout semantic extraction
-
-### 7-Step Extraction Process (All in parse())
+**Contour Detection:**
 ```cpp
-bool flx_pdf_sio::parse(flx_string &data) {
-    // Step 1: Load PDF
-    m_pdf->LoadFromBuffer(buffer);
-    
-    // Step 2: Extract texts/images from ORIGINAL PDF (before modifications)
-    extract_texts_and_images(extracted_texts, extracted_images);
-    
-    // Step 3: Create PDF copy for geometry isolation
-    auto pdf_copy = create_pdf_copy();
-    
-    // Step 4: Remove texts/images from copy to isolate geometry
-    remove_texts_and_images_from_copy(pdf_copy.get());
-    
-    // Step 5: Render cleaned PDF to images for OpenCV processing
-    render_clean_pdf_to_images(pdf_copy.get(), clean_images);
-    
-    // Step 6: Detect color-coherent regions using flood-fill
-    detect_color_regions(page_image);
-    
-    // Step 7: Build layout structure and assign content
-    build_geometry_hierarchy(root_geometries);
-    assign_content_to_geometries(texts, images, geometries);
-    
-    // Store final layout in pages
-    pages = root_geometries;
+cv::Mat gray, binary;
+cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+cv::threshold(gray, binary, 127, 255, cv::THRESH_BINARY);
+
+std::vector<std::vector<cv::Point>> contours;
+cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+for (const auto& contour : contours) {
+    // Process contour points
 }
 ```
 
-### Design Philosophy
-- **Semantic Correctness**: Reading a file should extract its semantic structure
-- **Single Responsibility**: `parse()` method does complete document understanding
-- **No Intermediate States**: Either fully parsed or failed, no partial states
-- **Immediate Processing**: Text extraction happens before any PDF modifications
-
-### Font Corruption Prevention
-- **Timing Critical**: Text extraction MUST happen immediately after PDF loading
-- **No Serialization**: Extract from original PDF document, never from copies
-- **Font State Preservation**: All font objects and encoding tables remain intact
-
-### ✅ PDF Text Extraction KOMPLETT (September 2025)
-
-#### Vollständige PDF → Layout Pipeline Funktioniert! 🎉
-- **✅ Segfault Problem GELÖST**: Defensive PdfFont nullptr checks in TextState::ScanString implementiert
-- **✅ Echte Font Extraktion**: System extrahiert tatsächliche Font-Namen aus PDFs (`FreeMono` statt hardcoded `Arial`)
-- **✅ Alle Dummy/Fallback Code entfernt**: Keine Platzhalter-Implementierungen mehr - alle Probleme richtig gelöst
-- **✅ End-to-End Text Extraction**: PDF → Layout mit korrekten Font-Informationen ohne Crashes
-- **✅ Complete PoDoFo Integration**: 1400+ line implementation mit vollständiger TextState und Font-Handling
-
-#### Test Ergebnisse (Erfolgreich!)
-```
-✅ SUCCESS: Found 1 texts in pages[0].texts with positions!
-   Text: "Test Text"
-   Position: (0, 842)
-   Size: (64.8 x 12)
-   Font: FreeMono, Size: 12    ← ECHTE FONT INFORMATION!
-   Color: #000000, Bold: no, Italic: no
-```
-
-#### Technische Lösung Details
-1. **Font nullptr Protection**: `if (PdfState.Font == nullptr)` checks in allen font-abhängigen Methoden
-2. **Proper Font Resolution**: Tf_Operator verwendet `page.GetResources().GetFont(fontname)` für echte Font-Objekte
-3. **Real Font Name Extraction**: `font->GetName()` mit Subset-Prefix cleaning (`ABCDEF+FontName` → `FontName`)
-4. **StateStack Integration**: Nutzt PoDoFo's automatische `push({ })` default state creation
-5. **Direct flx_model_list**: Keine PdfTextEntry Zwischenschritte, direkte flx_layout_text Erstellung
-
-#### Nächste Entwicklungsrichtung
-- **PDF Text Extraction: ABGESCHLOSSEN** ✅
-- **Bereit für nächstes Projekt**: SDB Extractor von Ibis
-- **System Status**: Produktiv einsetzbar für Layout-to-PDF und PDF-to-Layout mit echten Font-Daten
-
-## AI Layout Evaluator System
-
-### Purpose
-Quantitatively evaluates layout extraction quality by comparing original layouts with extracted layouts using AI-powered analysis.
-
-### Architecture
-- **flx_layout_evaluator**: Main evaluator class using OpenAI GPT-4
-- **Structured Text Conversion**: Converts layouts to hierarchical text representation
-- **JSON Response Parsing**: Extracts numerical scores from AI responses
-- **Tolerance Configuration**: Supports coordinate and color tolerance settings
-
-### Evaluation Metrics
+**Flood-Fill Algorithm:**
 ```cpp
-struct layout_evaluation_result {
-  double structure_similarity;    // Overall structure match (0.0-1.0)
-  double position_accuracy;        // Coordinate accuracy with 5px tolerance
-  double hierarchy_correctness;    // Nesting/containment preservation
-  double text_extraction_score;    // Text content and properties
-  double image_detection_score;    // Image placement and metadata
-  double overall_score;           // Weighted average of all scores
-  flx_string detailed_report;     // AI's detailed analysis
-  flx_string differences_found;   // Specific differences listed
-};
+// Custom neighbor-by-neighbor color comparison
+// Each pixel compared only to adjacent pixels (supports gradients)
+// Implements binary "already processed" mask
+// NOT using traditional findContours for initial region detection
 ```
 
-### API Integration
-- **OpenAI GPT-4**: Uses `gpt-4-turbo-preview` model for best analysis
-- **Environment Configuration**: Reads `OPENAI_API_KEY` from `.env` file
-- **Low Temperature**: Set to 0.1 for consistent evaluation results
-- **JSON Response Format**: Enforces structured output for reliable parsing
+### OpenAI API Integration
 
-### Test Results
-- **Identical Layouts**: 0.96-1.0 overall score (perfect structure/position/hierarchy)
-- **Minor Position Differences**: 0.95 position accuracy with 3-5px variations
-- **Missing Elements**: 0.5 text extraction score when elements missing
-- **Detailed Reports**: AI provides human-readable analysis of differences
-
-### Usage Example
+**Setup:**
 ```cpp
-flx_string api_key = get_api_key();
+#include "api/aimodels/flx_openai_api.h"
+
+flx_string api_key = std::getenv("OPENAI_API_KEY");
 auto api = std::make_shared<openai_api>(api_key);
-flx_layout_evaluator evaluator(api);
-
-auto result = evaluator.evaluate_extraction(original_layout, extracted_layout);
-std::cout << "Overall Score: " << result.overall_score << "\n";
-std::cout << "Report: " << result.detailed_report.c_str() << "\n";
 ```
 
-### Environment Setup
-Create `.env` file in project root and build directory:
+**Layout Evaluation:**
+```cpp
+#include "aiprocesses/eval/flx_layout_evaluator.h"
+
+flx_layout_evaluator evaluator(api);
+auto result = evaluator.evaluate_extraction(original_layout, extracted_layout);
+
+// Scores (0.0 - 1.0)
+double overall = result.overall_score;
+double structure = result.structure_similarity;
+double position = result.position_accuracy;
+double hierarchy = result.hierarchy_correctness;
+double text = result.text_extraction_score;
+double images = result.image_detection_score;
+
+// AI-generated report
+flx_string report = result.detailed_report;
+flx_string differences = result.differences_found;
+```
+
+**Environment Variables:**
 ```bash
-OPENAI_API_KEY=your-api-key-here
+OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4-turbo-preview
 OPENAI_TEMPERATURE=0.1
 LAYOUT_EVAL_COORDINATE_TOLERANCE=5.0
 LAYOUT_EVAL_COLOR_TOLERANCE=10.0
 ```
 
-## Complete Round-Trip Test System
-1. **Layout → PDF**: ✅ Complete and working
-2. **PDF → Layout**: ✅ Complete pipeline implemented  
-3. **AI Evaluator**: ✅ Complete with quantitative metrics
+---
 
-### System Integration
-- **Synthetic Data Generation**: Create perfect ground truth layouts
-- **PDF Round-Trip Testing**: Layout → PDF → Layout → AI Evaluation
-- **Quantitative Benchmarks**: Numerical scores for extraction quality
-- **Training Data Creation**: Controlled scenarios for AI model training
+## Implementation Notes
 
-### Key Implementation Details
-- **PDF Content Stream Filtering**: Removes text/image operators while preserving geometry
-- **Neighbor-Comparison Flood-Fill**: Each pixel compared only to neighbors for gradient support
-- **No White Filtering**: White regions preserved, filtered only at border detection stage
-- **Recursive Content Assignment**: Texts/images assigned to deepest matching geometry container
-- **Direct Model List Usage**: Works directly with flx_model_list throughout pipeline
+### Property System Internals
+
+**Type Storage:**
+- All `flxp_int` properties store as `long long` internally
+- SFINAE template magic enables `property == 42` (int literal comparison)
+- Non-const access creates defaults automatically
+- Const access throws `flx_null_field_exception` when null
+
+**Property Sync System:**
+- Properties automatically sync with parent before access
+- Nested model_lists sync recursively
+- Virtual `operator*` overrides trigger sync in flx_model and flx_model_list
+
+**Reference Counting:**
+- `flx_lazy_ptr<T>` provides shared_ptr-like semantics
+- Models are lazy-initialized (no allocation until first access)
+- Copy constructor attempts to copy but ignores exceptions for const-safety
+
+### PDF Processing Pipeline
+
+**7-Step Extraction Process:**
+1. **Load PDF** - PoDoFo `LoadFromBuffer()`
+2. **Extract Text/Images** - IMMEDIATELY from original (before any copying)
+3. **Create Copy** - Working copy for geometry isolation
+4. **Remove Content** - Strip text/image operators from copy
+5. **Render to Images** - Clean PDF → PNG for OpenCV
+6. **Detect Regions** - Flood-fill with neighbor color comparison
+7. **Build Hierarchy** - Recursive containment analysis + content assignment
+
+**Critical Timing:**
+- Text extraction MUST be Step 2 (immediately after loading)
+- Any serialization/copying before extraction corrupts font data
+- Per-page font-cache clearing prevents XObject corruption
+
+### Coordinate Systems
+
+**PDF Coordinates:**
+- Origin: Bottom-left corner
+- Unit: Points (1/72 inch)
+- Y increases upward
+
+**Layout Coordinates:**
+- Origin: Top-left corner
+- Unit: Pixels (at specified DPI)
+- Y increases downward
+
+**Conversion:**
+```cpp
+#include "documents/pdf/flx_pdf_coords.h"
+
+// PDF points → PNG pixels
+double png_coord = flx_coords::pdf_to_png_coord(pdf_coord, dpi);
+
+// Y-axis flip for images
+double pdf_y = page_height - layout_y - image_height;
+```
+
+### Memory Management
+
+**Lazy Pointers:**
+```cpp
+flx_lazy_ptr<Type> ptr;  // Not allocated yet
+
+*ptr = value;            // Allocates on first write
+Type& ref = *ptr;        // Allocates on first non-const access
+
+const auto& const_ptr = ptr;
+// *const_ptr;           // Throws if not allocated (const-correct)
+
+ptr.is_null();           // Check without allocating
+```
+
+**Model Lifecycle:**
+- Models are value types (copyable)
+- Internal storage is reference-counted via flx_lazy_ptr
+- Copying models shares underlying data (copy-on-write semantics)
+- No manual memory management required
+
+### String Utilities
+
+**flx_string** provides 20+ utility methods:
+
+```cpp
+flx_string str = "  Hello World  ";
+
+str.trim();                        // Remove whitespace
+str.to_upper();                    // "HELLO WORLD"
+str.to_lower();                    // "hello world"
+str.starts_with("Hello");          // true
+str.ends_with("World");            // true
+str.contains("World");             // true
+str.replace("World", "There");     // "Hello There"
+str.split(' ');                    // vector of tokens
+flx_string::join(vec, ", ");       // Join with delimiter
+
+// Validation
+str.is_numeric();                  // Check if numeric
+str.is_empty();                    // Empty string
+
+// Conversion
+str.to_int();                      // Parse integer
+str.to_double();                   // Parse double
+```
+
+### DateTime System
+
+**flx_datetime** with millisecond precision:
+
+```cpp
+#include "utils/flx_datetime.h"
+
+// Current time
+auto now = flx_datetime::now();
+
+// From components
+auto dt = flx_datetime(2025, 1, 15, 14, 30, 0, 123);  // ms optional
+
+// Parsing
+auto parsed = flx_datetime::parse("2025-01-15T14:30:00.123Z");
+
+// Formatting (ISO 8601)
+flx_string iso = dt.to_iso_string();  // "2025-01-15T14:30:00.123Z"
+
+// Arithmetic
+auto later = now + flx_duration::hours(2);
+auto diff = later - now;
+
+// Comparison
+if (dt1 < dt2) { /*...*/ }
+
+// DST handling - automatic via tm_isdst = -1
+// UTC internal storage, local time input/output conversion
+```
+
+---
+
+## Documentation Guidelines (Meta)
+
+### Purpose of CLAUDE.md
+
+This file serves as the **primary onboarding document** for Claude Code sessions. It should enable a new session to:
+
+1. **Quickly orient** themselves in the project (< 2 minutes)
+2. **Find specific information** without reading everything
+3. **Understand critical rules** to avoid common mistakes
+4. **Reference API patterns** during implementation
+
+### Structure Principles
+
+**1. Quick Reference First**
+- Most frequent tasks at the top
+- Build/test commands immediately accessible
+- "Where to Find What" navigation map
+
+**2. Thematic Organization Over Chronology**
+- Group by topic, not timeline
+- "Current state" not "how we got here"
+- Historical context goes in Appendix
+
+**3. Action-Oriented Headings**
+- "How to X" not "About X"
+- Use imperatives: "Build System" not "Building"
+- Make section purposes obvious
+
+**4. Layered Information Depth**
+```
+Quick Reference (30 seconds)
+  ↓
+Overview (2 minutes)
+  ↓
+Architecture Guide (10 minutes)
+  ↓
+API Reference (when needed)
+  ↓
+Implementation Notes (deep dive)
+  ↓
+Appendix (historical/rarely needed)
+```
+
+### Content Guidelines
+
+**DO:**
+- ✅ **File paths with line numbers**: `flx_pdf_sio.cpp:202`
+- ✅ **Working code examples**: Show actual usage patterns
+- ✅ **Direct links**: "See `tests/README.md`" not "see test documentation"
+- ✅ **Critical rules prominently**: ⚠️ warnings for dangerous patterns
+- ✅ **Current capabilities**: What works NOW
+- ✅ **Concrete examples**: Show don't tell
+- ✅ **Navigation aids**: Tables, lists, tree structures
+- ✅ **Search-friendly**: Use consistent terminology
+
+**DON'T:**
+- ❌ **Long historical narratives**: "We tried X but it failed because Y"
+- ❌ **Obvious information**: "This file contains the code for X"
+- ❌ **Duplicate information**: Say it once, reference it elsewhere
+- ❌ **Vague rules**: "Be careful with pointers" → specify WHAT to avoid
+- ❌ **Outdated timestamps**: Remove "As of September 2025" if it's still current
+- ❌ **Implementation TODOs**: Move to issues, not documentation
+- ❌ **Verbose explanations**: Get to the point quickly
+
+### Section Guidelines
+
+**Quick Reference**
+- Commands that are run multiple times per day
+- File navigation map (X → file Y)
+- No explanations, just facts
+
+**Project Overview**
+- 2-3 paragraph summary
+- Current capabilities (production-ready features)
+- Technology stack table
+
+**Architecture Guide**
+- Conceptual understanding
+- Diagrams (ASCII) showing relationships
+- Key design principles
+
+**File Structure & Navigation**
+- Tree structure showing directory layout
+- Brief (1 line) description per file
+- Group related files together
+
+**Development Guidelines**
+- Critical rules (NEVER/ALWAYS) prominently
+- Testing commands
+- Build process
+- Event-driven rules for maintenance
+
+**API Reference**
+- Organized by framework/library
+- Working code examples
+- Common patterns
+- Error handling
+
+**Implementation Notes**
+- Deep technical details
+- Memory management specifics
+- Coordinate systems
+- Framework internals
+
+**Appendix**
+- Resolved issues (historical)
+- Deprecated approaches
+- Debugging case studies
+- Reference only when investigating similar issues
+
+### Maintenance Guidelines
+
+**When completing major features:**
+```
+1. Update relevant section (don't create new ones)
+2. Add to "Current Capabilities" if production-ready
+3. Update API Reference with new patterns
+4. Move old approach to Appendix if replaced
+```
+
+**When learning new APIs:**
+```
+1. Document in API Reference section
+2. Include working code examples
+3. Note gotchas and common mistakes
+4. Reference official docs for details
+```
+
+**When file structure changes:**
+```
+1. Update "File Structure & Navigation"
+2. Update "Where to Find What" in Quick Reference
+3. Update CMakeLists.txt documentation
+```
+
+**Quarterly review:**
+```
+1. Remove outdated information
+2. Consolidate redundant sections
+3. Update technology versions
+4. Verify all file paths still valid
+5. Check that "Quick Reference" matches current workflow
+```
+
+### Anti-Patterns to Avoid
+
+**❌ The "History Book"**
+```markdown
+## PDF Text Extraction
+
+We first tried using PoDoFo's ExtractTextTo() but it had memory issues.
+Then we tried implementing our own parser but fonts were corrupted.
+Finally we copied PoDoFo's internal implementation which works.
+```
+
+**✅ Better:**
+```markdown
+## PDF Text Extraction
+
+**File:** `documents/pdf/flx_pdf_text_extractor.h`
+
+Custom implementation based on PoDoFo's internal text extraction:
+- Complete font-encoding support
+- Works around font corruption issues
+- See Appendix A for historical context
+```
+
+---
+
+**❌ The "Obvious Documentation"**
+```markdown
+## flx_model.h
+
+This file contains the flx_model class which is used for models.
+```
+
+**✅ Better:**
+```markdown
+## flx_model Framework
+
+**Property system & variant-based models**
+
+```cpp
+class MyModel : public flx_model {
+    flxp_int(id);        // Declare properties with macros
+    flxp_string(name);   // Work like normal variables
+};
+```
+```
+
+---
+
+**❌ The "Redundant Explanation"**
+```markdown
+PoDoFo uses PdfPainter to paint PDFs. The painter paints on a canvas...
+```
+
+**✅ Better:**
+```markdown
+```cpp
+PdfPainter painter;
+painter.SetCanvas(page);
+painter.DrawText("Hello", x, y);
+```
+```
+
+---
+
+**❌ The "Vague Warning"**
+```markdown
+Be careful with const in the model system.
+```
+
+**✅ Better:**
+```markdown
+**❌ NEVER use `const_cast`**
+- Framework is const-incompatible
+- Leads to undefined behavior and segfaults
+- **Solution**: Accept non-const references, refactor API
+```
+
+### Documentation Checklist
+
+Before committing major documentation updates:
+
+- [ ] Quick Reference still matches daily workflow?
+- [ ] All file paths verified to exist?
+- [ ] Code examples tested and working?
+- [ ] No duplicate information across sections?
+- [ ] Historical content moved to Appendix?
+- [ ] Critical rules prominently marked?
+- [ ] Search-friendly terminology consistent?
+- [ ] Navigation aids (tables/trees) up to date?
+- [ ] Removed outdated timestamps?
+- [ ] Each section serves clear purpose?
+
+---
+
+## Appendix A: Resolved Issues (Historical Reference)
+
+### XObject Text Extraction Fix (October 2025)
+
+**Problem:** Only 69 of 75 texts extracted on page 5 (BTS 5070 PDF)
+
+**Root Cause:** Static font cache contained stale `PdfFont*` pointers from previous pages
+
+**Solution:** Per-page font-cache clearing in `flx_pdf_text_extractor::clear_font_cache()`
+
+**Location:** `flx_pdf_sio.cpp:202`
+
+**Result:** ✅ All 75 texts now extracted correctly
+
+**Details:** See `DEBUG_PH_WERT_PROBLEM.md` for complete debugging protocol
+
+### Font Corruption Prevention
+
+**Problem:** Font data corrupted after PDF serialization/reloading
+
+**Root Cause:** Font objects and encoding tables become invalid after PDF copy operations
+
+**Solution:** Extract text IMMEDIATELY after PDF loading, before any modifications
+
+**Architecture Change:** Text extraction moved to Step 2 of `parse()` method (before creating PDF copies)
+
+### PoDoFo Integration Completion
+
+**Achievement:** Copied entire 1400+ line `PdfPage_TextExtraction.cpp` from PoDoFo into custom `flx_pdf_text_extractor`
+
+**Features:**
+- Complete font-encoding support (CMap tables, composite fonts)
+- Text matrix transformations with CTM
+- All PDF text operators (BT/ET, Tf, Tj/TJ/'/'')
+- StatefulString processing with glyph positions
+- Hierarchical XObject support
+
+**Key Classes Integrated:**
+```cpp
+struct TextState { Matrix T_rm, CTM, T_m, T_lm; PdfTextState PdfState; };
+class StatefulString { string String; vector<double> Lengths; };
+struct ExtractionContext { TextStateStack States; StringChunkList Chunks; };
+```
+
+### Segfault Resolution
+
+**Problem:** Segfaults in `TextState::ScanString()` during text extraction
+
+**Root Cause:** Null `PdfFont*` pointers not checked before dereferencing
+
+**Solution:** Defensive nullptr checks in all font-dependent methods
+
+**Code Pattern:**
+```cpp
+if (PdfState.Font == nullptr) {
+    // Skip or use default behavior
+    return;
+}
+// Safe to use PdfState.Font->...
+```
+
+---
+
+## Additional Resources
+
+- **PoDoFo Documentation**: `documents/pdf/podofo-master/README.md`
+- **Catch2 Documentation**: https://github.com/catchorg/Catch2
+- **OpenCV Documentation**: https://docs.opencv.org/
+- **nlohmann/json**: `api/json/json.hpp` (header-only, self-documented)
+
+---
+
+**Last Updated:** November 2025
+**Status:** Production-ready, actively maintained
+**Working Directory:** `/home/fenno/Projects/flucture`
