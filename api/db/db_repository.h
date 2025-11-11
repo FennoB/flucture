@@ -54,12 +54,12 @@ public:
     flx_string property_name;  // XML fieldname for nested path navigation (legacy)
     flx_string cpp_name;       // C++ property name for map lookup
     flx_string column_name;
-    bool is_primary_key;
-    bool is_foreign_key;
+    bool is_primary_key = false;
+    bool is_foreign_key = false;
     flx_string foreign_table;
     flx_variant::state type;
-    bool is_unique;            // UNIQUE constraint
-    bool is_not_null;          // NOT NULL constraint
+    bool is_unique = false;            // UNIQUE constraint
+    bool is_not_null = false;          // NOT NULL constraint
   };
 
   struct relation_metadata {
@@ -1006,6 +1006,7 @@ inline std::vector<db_repository::field_metadata> db_repository::scan_child_fiel
 
     field.column_name = meta.at("column").string_value();
     field.type = prop->get_variant_type();
+
     child_fields.push_back(field);
   }
 
