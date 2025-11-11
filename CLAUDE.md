@@ -30,11 +30,12 @@ cd build && cmake .. && make
 - **Text extraction from PDF** → `documents/pdf/flx_pdf_text_extractor.h`
 - **AI layout evaluation** → `aiprocesses/eval/flx_layout_evaluator.h`
 - **Database ORM** → `api/db/db_repository.h`, `api/db/pg_connection.h`
+- **Database exceptions** → `api/db/db_exceptions.h` (11 exception classes)
 - **OpenAI integration** → `api/aimodels/flx_openai_api.h`
 - **HTTP server** → `api/server/flx_rest_api.h`
 - **String utilities** → `utils/flx_string.h`
 - **DateTime handling** → `utils/flx_datetime.h`
-- **Test examples** → `tests/test_*.cpp`
+- **Test examples** → `tests/test_*.cpp`, `tests/db_repository/`
 - **Build configuration** → `CMakeLists.txt`
 
 ### Key Documentation Files
@@ -121,6 +122,55 @@ const MyModel& const_ref = model;
 - **Variant storage**: flx_variant handles type conversions internally
 - **Reference counting**: flx_lazy_ptr for efficient memory management
 - **No const_cast**: ABSOLUTELY FORBIDDEN - framework incompatible
+
+**Metadata System for Database Integration:**
+
+Properties can be annotated with metadata for automatic ORM mapping:
+
+```cpp
+class User : public flx_model {
+    // Primary key: table name in metadata value
+    flxp_int(id, {
+        {"column", "id"},
+        {"primary_key", "users"}  // Value = table name
+    });
+
+    // Regular fields: column metadata is REQUIRED
+    flxp_string(name, {{"column", "username"}});
+    flxp_string(email, {{"column", "email_address"}});
+
+    // Foreign key to another table (reference)
+    flxp_int(company_id, {
+        {"column", "company_id"},
+        {"foreign_key", "companies"}  // Value = target table
+    });
+
+    // Child relation: NO metadata on parent side!
+    flxp_model_list(orders, Order);  // No metadata here
+};
+
+class Order : public flx_model {
+    flxp_int(id, {{"column", "id"}, {"primary_key", "orders"}});
+
+    // Foreign key back to parent table
+    flxp_int(user_id, {
+        {"column", "user_id"},
+        {"foreign_key", "users"}  // FK in child points to parent table
+    });
+
+    flxp_double(total, {{"column", "total_amount"}});
+};
+```
+
+**Metadata Rules:**
+- ✅ `{"column", "db_column_name"}` - **REQUIRED** for DB fields (no fallback!)
+- ✅ `{"primary_key", "table_name"}` - Marks PK, value = table name
+- ✅ `{"foreign_key", "target_table"}` - Marks FK, value = target table
+- ❌ `flxp_model` and `flxp_model_list` have **NO metadata**
+- ❌ No fallback to property name if `column` missing - field will be ignored
+
+**Relationship Detection:**
+Repository scans child models to find FK fields pointing back to parent table.
 
 ### Layout System
 
@@ -442,6 +492,7 @@ make -j$(nproc)
 
 **Property Declaration Macros:**
 ```cpp
+// Basic properties (no metadata)
 flxp_int(name)                    // long long storage, supports int literals
 flxp_double(name)                 // double precision floating point
 flxp_bool(name)                   // boolean
@@ -450,6 +501,20 @@ flxp_vector(name)                 // flxv_vector (variant vector)
 flxp_map(name)                    // flxv_map (variant map)
 flxp_model(name, Type)            // Nested model
 flxp_model_list(name, Type)       // Collection of models
+
+// With database metadata (optional third parameter for basic properties only)
+flxp_int(id, {{"column", "user_id"}, {"primary_key", "users"}})
+flxp_string(email, {{"column", "email_address"}})
+flxp_int(company_id, {{"column", "company_id"}, {"foreign_key", "companies"}})
+
+// Nested models and lists: NO metadata!
+flxp_model(address, Address)           // No third parameter
+flxp_model_list(orders, Order)         // No third parameter
+
+// Metadata Keys (only for basic properties):
+// {"column", "db_name"}       - REQUIRED for DB fields (no fallback!)
+// {"primary_key", "table"}    - Marks PK, value = table name
+// {"foreign_key", "table"}    - Marks FK, value = target table
 ```
 
 **Property Access:**
@@ -493,6 +558,114 @@ for (auto& item : items) {
 **Exceptions:**
 - `flx_null_field_exception` - Thrown when accessing null property in const context
 - `flx_null_access_exception` - Thrown when dereferencing null lazy pointer
+
+### Database Exception Handling
+
+**Exception-based error handling** (replaces bool returns as of November 2025):
+
+**File:** `api/db/db_exceptions.h`
+
+**Exception Hierarchy:**
+```
+db_exception (base)
+├── db_connection_error
+├── db_query_error
+│   ├── db_prepare_error
+│   └── db_constraint_violation
+│       ├── db_foreign_key_violation
+│       └── db_unique_violation
+├── db_model_error
+│   ├── db_null_id_error
+│   ├── db_record_not_found
+│   ├── db_no_fields_error
+│   └── db_no_table_name_error
+├── db_nested_save_error
+└── db_table_not_found
+```
+
+**Usage Pattern:**
+```cpp
+#include "api/db/db_repository.h"
+#include "api/db/db_exceptions.h"
+
+db_repository repo(&conn);
+MyModel model;
+
+try {
+    // CRUD operations throw on error (no bool returns)
+    repo.create(model);           // throws db_connection_error, db_query_error, etc.
+    repo.update(model);           // throws db_null_id_error if ID is null
+    repo.remove(model);           // throws db_null_id_error if ID is null
+    repo.find_by_id(123, model);  // throws db_record_not_found if not found
+
+} catch (const db_foreign_key_violation& e) {
+    // Specific exception with parsed details
+    std::cout << "FK violation: " << e.get_foreign_key_column()
+              << " references " << e.get_referenced_table() << "\n";
+    std::cout << "SQL: " << e.get_sql() << "\n";
+    std::cout << "DB error: " << e.get_database_error() << "\n";
+
+} catch (const db_unique_violation& e) {
+    std::cout << "Duplicate: " << e.get_column_name()
+              << " = " << e.get_duplicate_value().string_value() << "\n";
+
+} catch (const db_record_not_found& e) {
+    std::cout << "Not found in " << e.get_table_name()
+              << ": ID = " << e.get_id() << "\n";
+
+} catch (const db_nested_save_error& e) {
+    std::cout << "Failed saving " << e.get_child_table()
+              << " (parent: " << e.get_parent_table() << ")\n";
+
+} catch (const db_exception& e) {
+    // Base catch-all
+    std::cout << "Database error: " << e.what() << "\n";
+}
+```
+
+**Method Signatures (Exception-based):**
+```cpp
+// All throw db_exception or derived types on error
+void create(flx_model& model);
+void update(flx_model& model);
+void remove(flx_model& model);
+void find_by_id(long long id, flx_model& model);
+void find_all(flx_list& results);
+void find_where(const flx_string& condition, flx_list& results);
+
+// Only table_exists() returns bool (semantic meaning)
+bool table_exists(flx_model& model);
+```
+
+**PostgreSQL Error Parsing:**
+```cpp
+// db_repository automatically parses PostgreSQL error messages:
+// - Foreign key violations → extracts column name + referenced table
+// - Unique constraint violations → extracts column name + duplicate value
+// - Table not found → detects during prepare() and execute()
+```
+
+**Testing Exception Handling:**
+```cpp
+// In tests (Catch2):
+REQUIRE_THROWS_AS(repo.create(invalid_model), db_foreign_key_violation);
+REQUIRE_THROWS_AS(repo.find_by_id(999, model), db_record_not_found);
+REQUIRE_NOTHROW(repo.create(valid_model));
+
+// Test exception details:
+try {
+    repo.create(department_without_company);
+    FAIL("Should have thrown");
+} catch (const db_foreign_key_violation& e) {
+    REQUIRE(e.get_foreign_key_column() == "company_id");
+    REQUIRE(e.get_referenced_table() == "test_companies");
+}
+```
+
+**Migration Notes:**
+- `get_last_error()` still exists but is legacy (unused in exception-based code)
+- All CRUD methods throw exceptions instead of returning false
+- Breaking change: Code using bool returns must migrate to try-catch
 
 ### PoDoFo PDF API
 
@@ -743,6 +916,11 @@ str.contains("World");             // true
 str.replace("World", "There");     // "Hello There"
 str.split(' ');                    // vector of tokens
 flx_string::join(vec, ", ");       // Join with delimiter
+
+// Search with position
+size_t pos = str.find("World");               // Find from beginning
+size_t pos2 = str.find("o", 5);               // Find starting at position 5
+// Returns std::string::npos if not found
 
 // Validation
 str.is_numeric();                  // Check if numeric

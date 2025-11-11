@@ -138,6 +138,19 @@ private:
   // Helper methods for load_nested_objects refactoring
   void load_child_relation(flx_model& model, const relation_metadata& rel, const flx_variant& parent_id);
   void recursively_load_grandchildren(flx_model& model);
+
+  // Helper methods for parsing PostgreSQL error messages
+  struct fk_violation_info {
+    flx_string foreign_key_column;
+    flx_string referenced_table;
+  };
+  fk_violation_info parse_fk_violation(const flx_string& error_msg);
+
+  struct unique_violation_info {
+    flx_string column_name;
+    flx_string value_str;
+  };
+  unique_violation_info parse_unique_violation(const flx_string& error_msg);
 };
 
 // Implementation
@@ -175,7 +188,7 @@ inline flx_string db_repository::get_last_error() const
 inline void db_repository::create(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 
   // AUTO-EMBED: Generate semantic embedding if embedder is set
@@ -204,14 +217,26 @@ inline void db_repository::create(flx_model& model)
 
   if (!query->execute()) {
     flx_string error_msg = query->get_last_error();
+
+    // Check for table not found during execute
+    if (error_msg.contains("does not exist") || (error_msg.contains("relation") && error_msg.contains("does not exist"))) {
+      throw db_table_not_found(table_name);
+    }
+
     // Check for constraint violations
     if (error_msg.contains("foreign key") || error_msg.contains("violates foreign key constraint")) {
-      // Parse FK details from error message (best effort)
-      throw db_foreign_key_violation(table_name, "", "", sql, error_msg);
+      auto fk_info = parse_fk_violation(error_msg);
+      throw db_foreign_key_violation(table_name, fk_info.foreign_key_column,
+                                       fk_info.referenced_table, sql, error_msg);
     }
+
     if (error_msg.contains("unique") || error_msg.contains("duplicate key")) {
-      throw db_unique_violation(table_name, "", flx_variant());
+      auto unique_info = parse_unique_violation(error_msg);
+      // Create variant from parsed value string
+      flx_variant dup_value(unique_info.value_str);
+      throw db_unique_violation(table_name, unique_info.column_name, dup_value);
     }
+
     throw db_query_error("Failed to execute insert", sql, error_msg);
   }
 
@@ -233,7 +258,7 @@ inline void db_repository::create(flx_model& model)
 inline void db_repository::update(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 
   flx_string table_name = extract_table_name(model);
@@ -292,7 +317,7 @@ inline void db_repository::update(flx_model& model)
 inline void db_repository::remove(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 
   flx_string table_name = extract_table_name(model);
@@ -325,7 +350,7 @@ inline void db_repository::remove(flx_model& model)
 inline void db_repository::find_by_id(long long id, flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 
   flx_string table_name = extract_table_name(model);
@@ -386,7 +411,7 @@ inline void db_repository::find_where(const flx_string& condition, flx_list& res
   flx_model& model = *sample;
 
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 
   auto query = connection_->create_query();
@@ -433,7 +458,7 @@ inline void db_repository::find_where(const flx_string& condition, flx_list& res
 inline bool db_repository::table_exists(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
+    last_error_ = "Database not connected";
     return false;
   }
 
@@ -851,6 +876,7 @@ inline void db_repository::save_nested_objects_impl(flx_model& model)
   if (relations.empty()) return;
 
   flx_variant parent_id = validate_parent_id(model);
+  flx_string parent_table = extract_table_name(model);
 
   for (const auto& rel : relations) {
     flx_model* typed_child = find_typed_child_model(model, rel);
@@ -866,15 +892,21 @@ inline void db_repository::save_nested_objects_impl(flx_model& model)
       flx_model* item = (source_info.single_child != nullptr) ? source_info.single_child : source_info.model_list->get_model_at(i);
       if (item == nullptr) continue;
 
-      auto query = connection_->create_query();
-      if (!query->prepare(insert_sql)) {
-        throw db_prepare_error("Failed to prepare child insert", insert_sql, query->get_last_error());
+      try {
+        auto query = connection_->create_query();
+        if (!query->prepare(insert_sql)) {
+          throw db_prepare_error("Failed to prepare child insert", insert_sql, query->get_last_error());
+        }
+
+        bind_and_execute_child_insert(query.get(), rel, item, parent_id, child_fields);
+        update_child_foreign_key(item, rel, parent_id, child_fields);
+
+        save_nested_objects_impl(*item);  // Recursive save grandchildren
       }
-
-      bind_and_execute_child_insert(query.get(), rel, item, parent_id, child_fields);
-      update_child_foreign_key(item, rel, parent_id, child_fields);
-
-      save_nested_objects_impl(*item);  // Recursive save grandchildren
+      catch (const db_exception& e) {
+        // Wrap any db_exception in db_nested_save_error to show hierarchy context
+        throw db_nested_save_error(parent_table, rel.related_table, e.what());
+      }
     }
   }
 }
@@ -1145,7 +1177,7 @@ inline void db_repository::validate_search_prerequisites(flx_list& results)
   results.clear();
 
   if (!connection_ || !connection_->is_connected()) {
-    throw db_connection_error("Not connected to database");
+    throw db_connection_error("Database not connected");
   }
 }
 
@@ -2095,6 +2127,77 @@ inline void db_repository::ensure_structures(flx_model& model)
 
     ensure_child_table_from_model(&(*sample_elem));
   }
+}
+
+
+// ============================================================================
+// PostgreSQL Error Message Parsing
+// ============================================================================
+
+inline db_repository::fk_violation_info db_repository::parse_fk_violation(const flx_string& error_msg)
+{
+  fk_violation_info info;
+
+  // PostgreSQL FK error format:
+  // "ERROR: insert or update on table "table_name" violates foreign key constraint "constraint_name"
+  //  DETAIL: Key (column_name)=(value) is not present in table "referenced_table"."
+
+  // Extract column name from "Key (column_name)=(...)"
+  size_t key_pos = error_msg.find("Key (");
+  if (key_pos != std::string::npos) {
+    size_t start_pos = key_pos + 5;  // After "Key ("
+    size_t end_pos = error_msg.find(")", start_pos);
+    if (end_pos != std::string::npos) {
+      info.foreign_key_column = error_msg.substr(start_pos, end_pos - start_pos);
+    }
+  }
+
+  // Extract referenced table from "not present in table \"table_name\""
+  size_t table_pos = error_msg.find("not present in table ");
+  if (table_pos != std::string::npos) {
+    size_t start_pos = error_msg.find("\"", table_pos);
+    if (start_pos != std::string::npos) {
+      start_pos++;  // Skip opening quote
+      size_t end_pos = error_msg.find("\"", start_pos);
+      if (end_pos != std::string::npos) {
+        info.referenced_table = error_msg.substr(start_pos, end_pos - start_pos);
+      }
+    }
+  }
+
+  return info;
+}
+
+
+inline db_repository::unique_violation_info db_repository::parse_unique_violation(const flx_string& error_msg)
+{
+  unique_violation_info info;
+
+  // PostgreSQL unique constraint error format:
+  // "ERROR: duplicate key value violates unique constraint "constraint_name"
+  //  DETAIL: Key (column_name)=(value) already exists."
+
+  // Extract column name from "Key (column_name)=(...)"
+  size_t key_pos = error_msg.find("Key (");
+  if (key_pos != std::string::npos) {
+    size_t start_pos = key_pos + 5;  // After "Key ("
+    size_t end_pos = error_msg.find(")", start_pos);
+    if (end_pos != std::string::npos) {
+      info.column_name = error_msg.substr(start_pos, end_pos - start_pos);
+
+      // Extract value from ")=(value)"
+      size_t value_start = error_msg.find("=(", end_pos);
+      if (value_start != std::string::npos) {
+        value_start += 2;  // After "=("
+        size_t value_end = error_msg.find(")", value_start);
+        if (value_end != std::string::npos) {
+          info.value_str = error_msg.substr(value_start, value_end - value_start);
+        }
+      }
+    }
+  }
+
+  return info;
 }
 
 #endif // DB_REPOSITORY_H

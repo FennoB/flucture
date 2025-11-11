@@ -116,6 +116,7 @@ public:
   }
 
   size_t find(const flx_string& s) const { return str.find(s.str); }
+  size_t find(const flx_string& s, size_t pos) const { return str.find(s.str, pos); }
   size_t rfind(const flx_string& s) const { return str.rfind(s.str); }
 
   bool contains(const flx_string& s) const { return str.find(s.str) != std::string::npos; }
