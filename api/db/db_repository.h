@@ -610,7 +610,16 @@ inline flx_string db_repository::build_update_sql(const flx_model& model)
 
 inline flx_string db_repository::build_select_sql(flx_model& model, const flx_string& where_clause)
 {
-  flx_string sql = flx_string("SELECT * FROM ") + extract_table_name(model);
+  // Build explicit column list from model properties (performance: avoid loading unused columns like semantic_embedding)
+  auto fields = scan_fields(model);
+  flx_string column_list = id_column_;  // Always include primary key
+
+  for (const auto& field : fields) {
+    if (field.column_name == id_column_) continue;  // Already added
+    column_list += ", " + field.column_name;
+  }
+
+  flx_string sql = flx_string("SELECT ") + column_list + " FROM " + extract_table_name(model);
 
   if (!where_clause.empty()) {
     sql += " WHERE " + where_clause;

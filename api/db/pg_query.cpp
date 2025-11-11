@@ -152,16 +152,6 @@ flx_string pg_query::substitute_params(const flx_string& sql)
     flx_string placeholder = flx_string(":") + pair.first;
     flx_string value;
 
-    // DEBUG
-    std::cout << "[SQL BIND DEBUG] " << pair.first.c_str()
-              << " is_null=" << pair.second.is_null()
-              << " is_string=" << pair.second.is_string()
-              << " is_int=" << pair.second.is_int()
-              << " is_double=" << pair.second.is_double()
-              << " is_bool=" << pair.second.is_bool()
-              << " state=" << pair.second.in_state()
-              << std::endl;
-
     // CRITICAL: Check is_null() FIRST before type checks
     if (pair.second.is_null()) {
       value = "NULL";
@@ -257,9 +247,22 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
       // Try to get the value with proper type conversion
       flx_string value_str = field.c_str();
 
+      // Check for pgvector array format: [0.1,0.2,0.3,...]
+      if (value_str.starts_with("[") && value_str.ends_with("]")) {
+        // Parse vector: strip brackets and split by comma
+        flx_string vec_content = value_str.substr(1, value_str.length() - 2);
+        auto parts = vec_content.split(',');
+
+        flxv_vector vec;
+        vec.reserve(parts.size());
+        for (const auto& part : parts) {
+          vec.push_back(flx_variant(part.trim().to_double(0.0)));
+        }
+        row_map[column_name] = flx_variant(vec);
+      }
       // Try to detect numeric types by attempting conversion
       // Check for boolean first
-      if (value_str == "t" || value_str == "f" ||
+      else if (value_str == "t" || value_str == "f" ||
           value_str == "true" || value_str == "false") {
         row_map[column_name] = flx_variant(value_str == "t" || value_str == "true");
       }
