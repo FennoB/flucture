@@ -58,6 +58,8 @@ public:
     bool is_foreign_key;
     flx_string foreign_table;
     flx_variant::state type;
+    bool is_unique;            // UNIQUE constraint
+    bool is_not_null;          // NOT NULL constraint
   };
 
   struct relation_metadata {
@@ -98,11 +100,14 @@ protected:
   virtual void bind_model_values(db_query* query, flx_model& model);
   virtual void map_to_model(const flxv_map& row, flx_model& model);
   virtual flx_string get_sql_type(const flx_variant& value);
-  virtual flx_string get_sql_type_from_state(flx_variant::state state);
+  virtual flx_string get_sql_type_from_state(flx_variant::state state, const flx_string& column_name = "");
   virtual flx_variant access_nested_value(flx_model& model, const flx_string& property_name);
   virtual std::set<flx_string> get_existing_columns(flx_model& model);  // Query database schema
   virtual void ensure_child_table_from_model(flx_model* child_model);  // Create child table dynamically
   virtual void save_nested_objects_impl(flx_model& model);  // Generic recursive save helper
+  virtual bool has_semantic_properties(const flx_model& model) const;  // Check for semantic metadata
+  virtual void ensure_pgvector_extension();  // Ensure pgvector extension exists
+  virtual void create_semantic_index(const flx_string& table_name);  // Create HNSW index for semantic_embedding
 
 private:
   // Helper structs and methods for save_nested_objects_impl refactoring (SRP)
@@ -192,6 +197,7 @@ inline void db_repository::create(flx_model& model)
   }
 
   // AUTO-EMBED: Generate semantic embedding if embedder is set
+  // If model has semantic properties but no embedder, semantic_embedding will be NULL
   if (embedder_) {
     embedder_->embed_model(model);
   }
@@ -270,6 +276,7 @@ inline void db_repository::update(flx_model& model)
   }
 
   // AUTO-EMBED: Generate semantic embedding if embedder is set
+  // If model has semantic properties but no embedder, semantic_embedding will be NULL
   if (embedder_) {
     embedder_->embed_model(model);
   }
@@ -492,8 +499,18 @@ inline void db_repository::create_table(flx_model& model)
   for (const auto& field : fields) {
     if (field.column_name == id_column_) continue;
 
-    flx_string sql_type = get_sql_type_from_state(field.type);
+    flx_string sql_type = get_sql_type_from_state(field.type, field.column_name);
     sql += ",\n  " + field.column_name + " " + sql_type;
+
+    // Add NOT NULL constraint if specified
+    if (field.is_not_null) {
+      sql += " NOT NULL";
+    }
+
+    // Add UNIQUE constraint if specified
+    if (field.is_unique) {
+      sql += " UNIQUE";
+    }
   }
 
   sql += "\n)";
@@ -524,6 +541,12 @@ inline void db_repository::create_table(flx_model& model)
         // Ignore if constraint already exists
       }
     }
+  }
+
+  // Ensure pgvector extension exists if model has semantic properties
+  if (has_semantic_properties(model)) {
+    ensure_pgvector_extension();
+    create_semantic_index(table_name);
   }
 }
 
@@ -678,8 +701,13 @@ inline flx_string db_repository::get_sql_type(const flx_variant& value)
 }
 
 
-inline flx_string db_repository::get_sql_type_from_state(flx_variant::state state)
+inline flx_string db_repository::get_sql_type_from_state(flx_variant::state state, const flx_string& column_name)
 {
+  // Special handling for semantic_embedding column (pgvector halfvec type)
+  if (column_name == "semantic_embedding" && state == flx_variant::vector_state) {
+    return "halfvec(3072)";  // OpenAI text-embedding-3-large dimensions
+  }
+
   switch (state) {
     case flx_variant::string_state:
       return "VARCHAR(255)";
@@ -692,7 +720,7 @@ inline flx_string db_repository::get_sql_type_from_state(flx_variant::state stat
     case flx_variant::map_state:
       return "JSONB";
     case flx_variant::vector_state:
-      return "JSONB";
+      return "JSONB";  // Regular vectors use JSONB
     default:
       return "TEXT";
   }
@@ -735,6 +763,14 @@ inline std::vector<db_repository::field_metadata> db_repository::scan_fields(con
     } else {
       field.is_foreign_key = false;
     }
+
+    // Check for UNIQUE constraint
+    field.is_unique = (meta.find("unique") != meta.end() &&
+                       meta.at("unique").string_value() == "true");
+
+    // Check for NOT NULL constraint
+    field.is_not_null = (meta.find("not_null") != meta.end() &&
+                         meta.at("not_null").string_value() == "true");
 
     // Get type from property definition
     field.type = prop->get_variant_type();
@@ -1943,7 +1979,7 @@ inline void db_repository::migrate_table(flx_model& model)
 
   // Add missing columns
   for (const auto& field : missing_cols) {
-    flx_string sql_type = get_sql_type_from_state(field.type);
+    flx_string sql_type = get_sql_type_from_state(field.type, field.column_name);
     flx_string alter_sql = "ALTER TABLE " + extract_table_name(model) + " ADD COLUMN " + field.column_name + " " + sql_type;
 
     auto query = connection_->create_query();
@@ -2015,6 +2051,15 @@ inline void db_repository::ensure_child_table_from_model(flx_model* child_model)
       if (field.is_foreign_key) {
         field.foreign_table = meta.at("foreign_key").string_value();
       }
+
+      // Check for UNIQUE constraint
+      field.is_unique = (meta.find("unique") != meta.end() &&
+                         meta.at("unique").string_value() == "true");
+
+      // Check for NOT NULL constraint
+      field.is_not_null = (meta.find("not_null") != meta.end() &&
+                           meta.at("not_null").string_value() == "true");
+
       field.type = prop->get_variant_type();
       child_fields.push_back(field);
     }
@@ -2053,10 +2098,20 @@ inline void db_repository::ensure_child_table_from_model(flx_model* child_model)
     first = false;
 
     create_sql += field.column_name + " ";
-    create_sql += get_sql_type_from_state(field.type);
+    create_sql += get_sql_type_from_state(field.type, field.column_name);
 
     if (field.is_primary_key) {
       create_sql += " PRIMARY KEY GENERATED ALWAYS AS IDENTITY";
+    }
+
+    // Add NOT NULL constraint if specified (skip for primary key)
+    if (!field.is_primary_key && field.is_not_null) {
+      create_sql += " NOT NULL";
+    }
+
+    // Add UNIQUE constraint if specified (skip for primary key)
+    if (!field.is_primary_key && field.is_unique) {
+      create_sql += " UNIQUE";
     }
   }
 
@@ -2199,5 +2254,79 @@ inline db_repository::unique_violation_info db_repository::parse_unique_violatio
 
   return info;
 }
+
+
+// ============================================================================
+// Semantic Embedding Support
+// ============================================================================
+
+inline bool db_repository::has_semantic_properties(const flx_model& model) const
+{
+  const auto& properties = model.get_properties();
+
+  for (const auto& prop_pair : properties) {
+    const flxv_map& meta = prop_pair.second->get_meta();
+    auto it = meta.find("semantic");
+    if (it != meta.end()) {
+      flx_variant semantic_flag = it->second;  // Non-const copy
+      if (semantic_flag.in_state() == flx_variant::bool_state && semantic_flag.to_bool()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+
+inline void db_repository::ensure_pgvector_extension()
+{
+  flx_string sql = "CREATE EXTENSION IF NOT EXISTS vector";
+
+  auto query = connection_->create_query();
+  if (!query->prepare(sql)) {
+    throw db_prepare_error("Failed to prepare CREATE EXTENSION", sql, query->get_last_error());
+  }
+
+  if (!query->execute()) {
+    throw db_query_error("Failed to create pgvector extension", sql, query->get_last_error());
+  }
+}
+
+
+inline void db_repository::create_semantic_index(const flx_string& table_name)
+{
+  // Check if semantic_embedding column exists
+  flx_string check_sql = "SELECT column_name FROM information_schema.columns WHERE table_name = :table_name AND column_name = 'semantic_embedding'";
+
+  auto check_query = connection_->create_query();
+  if (!check_query->prepare(check_sql)) {
+    return;  // Silent fail - column doesn't exist
+  }
+
+  check_query->bind("table_name", flx_variant(table_name));
+  if (!check_query->execute()) {
+    return;  // Silent fail
+  }
+
+  auto rows = check_query->get_all_rows();
+  if (rows.empty()) {
+    return;  // No semantic_embedding column
+  }
+
+  // Create HNSW index for vector similarity search
+  flx_string index_name = "idx_" + table_name + "_semantic_embedding";
+  flx_string sql = "CREATE INDEX IF NOT EXISTS " + index_name + " ON " + table_name +
+                   " USING hnsw (semantic_embedding halfvec_cosine_ops) WITH (m = 16, ef_construction = 64)";
+
+  auto query = connection_->create_query();
+  if (!query->prepare(sql)) {
+    // Index creation can fail if already exists or column type wrong - not critical
+    return;
+  }
+
+  query->execute();  // Ignore errors - index creation is best-effort
+}
+
 
 #endif // DB_REPOSITORY_H

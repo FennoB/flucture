@@ -270,9 +270,7 @@ SCENARIO("Unique constraint violation throws db_unique_violation", "[repo][error
 
         WHEN("Attempting to create duplicate") {
             THEN("Throws db_unique_violation") {
-                // Will fail until UNIQUE constraint added to schema
-                // REQUIRE_THROWS_AS(repo.create(p2), db_unique_violation);
-                SKIP("UNIQUE constraint not yet in schema");
+                REQUIRE_THROWS_AS(repo.create(p2), db_unique_violation);
             }
 
             AND_THEN("Exception identifies the column") {
@@ -336,16 +334,14 @@ SCENARIO("Failed nested save throws db_nested_save_error", "[repo][error][hierar
         test_company company;
         company.name = cleanup.prefix() + "TestCorp";
 
-        // Create department with constraint violation
+        // Create department with constraint violation (NULL name violates NOT NULL)
         test_department dept;
-        dept.name = "";  // Assuming NOT NULL constraint
+        // Don't set dept.name - leave it NULL to violate NOT NULL constraint
         company.departments.push_back(dept);
 
         WHEN("Attempting to create company") {
             THEN("Throws db_nested_save_error") {
-                // Will throw if NOT NULL constraint exists on name
-                // REQUIRE_THROWS_AS(repo.create(company), db_nested_save_error);
-                SKIP("Depends on schema constraints");
+                REQUIRE_THROWS_AS(repo.create(company), db_nested_save_error);
             }
 
             AND_THEN("Exception identifies parent table") {

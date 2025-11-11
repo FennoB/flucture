@@ -10,7 +10,7 @@
 class test_simple_product : public flx_model {
 public:
     flxp_int(id, {{"column", "id"}, {"primary_key", "test_simple_products"}});
-    flxp_string(name, {{"column", "name"}});
+    flxp_string(name, {{"column", "name"}, {"unique", "true"}});
     flxp_double(price, {{"column", "price"}});
     flxp_int(stock_quantity, {{"column", "stock_quantity"}});
     flxp_bool(active, {{"column", "active"}});
@@ -35,7 +35,7 @@ class test_department : public flx_model {
 public:
     flxp_int(id, {{"column", "id"}, {"primary_key", "test_departments"}});
     flxp_int(company_id, {{"foreign_key", "test_companies"}, {"column", "company_id"}});
-    flxp_string(name, {{"column", "name"}});
+    flxp_string(name, {{"column", "name"}, {"not_null", "true"}});
     flxp_string(location, {{"column", "location"}});
     flxp_double(budget, {{"column", "budget"}});
 

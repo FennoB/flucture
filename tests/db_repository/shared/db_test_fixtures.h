@@ -55,6 +55,15 @@ static inline void drop_all_test_tables() {
 // Global test fixture - ensures tables exist before any tests run
 static inline bool global_db_setup() {
     static bool setup_done = false;
+    static int schema_version = 2; // Increment this when schema changes!
+    static int last_schema_version = 0;
+
+    // Force rebuild if schema changed
+    if (last_schema_version != schema_version) {
+        setup_done = false;
+        last_schema_version = schema_version;
+    }
+
     if (setup_done) return true;
 
     pg_connection& conn = get_test_connection();

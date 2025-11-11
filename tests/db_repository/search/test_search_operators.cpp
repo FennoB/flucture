@@ -36,11 +36,14 @@ SCENARIO("Search with equals operator returns exact matches", "[repo][search][op
         db_repository repo(&conn);
         db_test_cleanup cleanup(&conn, "search_equals");
 
-        // Create test products
+        // Create test products (with unique names due to UNIQUE constraint)
         test_simple_product p1, p2, p3;
-        p1.name = cleanup.prefix() + "Laptop";
-        p2.name = cleanup.prefix() + "Desktop";
-        p3.name = cleanup.prefix() + "Laptop"; // Duplicate
+        p1.name = cleanup.prefix() + "Product1";
+        p1.price = 999.99;
+        p2.name = cleanup.prefix() + "Product2";
+        p2.price = 1299.99;
+        p3.name = cleanup.prefix() + "Product3";
+        p3.price = 999.99; // Same price as p1
 
         repo.create(p1);
         repo.create(p2);
@@ -51,7 +54,7 @@ SCENARIO("Search with equals operator returns exact matches", "[repo][search][op
 
         WHEN("Searching with equals criteria") {
             db_search_criteria criteria;
-            criteria.equals("name", flx_variant(cleanup.prefix() + "Laptop"));
+            criteria.equals("price", flx_variant(999.99));
 
             flx_model_list<test_simple_product> results;
             REQUIRE_NOTHROW(repo.search(criteria, results));
@@ -60,9 +63,9 @@ SCENARIO("Search with equals operator returns exact matches", "[repo][search][op
                 REQUIRE(results.size() == 2);
             }
 
-            AND_THEN("Both results have the searched name") {
-                REQUIRE(results[0].name == cleanup.prefix() + "Laptop");
-                REQUIRE(results[1].name == cleanup.prefix() + "Laptop");
+            AND_THEN("Both results have the searched price") {
+                REQUIRE(results[0].price == 999.99);
+                REQUIRE(results[1].price == 999.99);
             }
         }
     }
@@ -412,11 +415,11 @@ SCENARIO("Search with multiple AND conditions filters correctly", "[repo][search
         db_test_cleanup cleanup(&conn, "search_and");
 
         test_simple_product p1, p2, p3;
-        p1.name = cleanup.prefix() + "Laptop";
+        p1.name = cleanup.prefix() + "Laptop1";
         p1.price = 1000.0;
         p1.active = true;
 
-        p2.name = cleanup.prefix() + "Laptop";
+        p2.name = cleanup.prefix() + "Laptop2";
         p2.price = 1500.0;
         p2.active = false;
 
