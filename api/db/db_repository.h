@@ -5,6 +5,7 @@
 #include "db_query.h"
 #include "db_query_builder.h"
 #include "db_search_criteria.h"
+#include "db_exceptions.h"
 #include "flx_semantic_embedder.h"
 #include "../../utils/flx_model.h"
 #include <vector>
@@ -13,40 +14,40 @@
 #include <functional>
 #include <iostream>
 
-template<typename T>
 class db_repository {
-  static_assert(std::is_base_of<flx_model, T>::value, "T must derive from flx_model");
-
 public:
-  explicit db_repository(db_connection* conn, const flx_string& table_name);
+  explicit db_repository(db_connection* conn);
   virtual ~db_repository() = default;
 
-  // CRUD Operations
-  virtual bool create(T& model);
-  virtual bool update(T& model);
-  virtual bool remove(T& model);
-  virtual bool find_by_id(long long id, T& model);
-  virtual bool find_all(flx_model_list<T>& results);
-  virtual bool find_where(const flx_string& condition, flx_model_list<T>& results);
+  // CRUD Operations (throw exceptions on error)
+  virtual void create(flx_model& model);
+  virtual void update(flx_model& model);
+  virtual void remove(flx_model& model);
+  virtual void find_by_id(long long id, flx_model& model);
+  virtual void find_all(flx_list& results);
+  virtual void find_where(const flx_string& condition, flx_list& results);
 
   // Utility
-  virtual bool table_exists();
-  virtual bool create_table();
-  virtual bool migrate_table();  // Auto-add missing columns from model
-  virtual bool drop_table();
+  virtual bool table_exists(flx_model& model);  // Returns bool with semantic meaning
+  virtual void create_table(flx_model& model);
+  virtual void migrate_table(flx_model& model);  // Auto-add missing columns from model
+  virtual void drop_table(flx_model& model);
+  virtual void ensure_structures(flx_model& model);  // Ensure all tables exist (idempotent)
 
   // Configuration
   void set_id_column(const flx_string& column_name);
-  void set_schema(const std::vector<flx_string>& columns);
   void set_embedder(flx_semantic_embedder* embedder);
   flx_string get_last_error() const;
 
   // Metadata-based automation
-  virtual bool auto_configure();
-  virtual bool search(const db_search_criteria& criteria, flx_model_list<T>& results);
+  virtual void auto_configure(flx_model& model);
+  virtual void search(const db_search_criteria& criteria, flx_list& results);
+
+  // Extract table name from model's primary_key metadata
+  static flx_string extract_table_name(const flx_model& model);
 
   // Hierarchical search (two-phase: ID query + batch load + tree construction)
-  virtual bool search_hierarchical(const db_search_criteria& criteria, flx_model_list<T>& results);
+  virtual void search_hierarchical(const db_search_criteria& criteria, flx_list& results);
 
   // Metadata scanning structures
   struct field_metadata {
@@ -65,14 +66,14 @@ public:
     flx_string foreign_key_column;
   };
 
-  virtual std::vector<field_metadata> scan_fields();
-  virtual std::vector<relation_metadata> scan_relations();
+  virtual std::vector<field_metadata> scan_fields(const flx_model& model);
+  virtual std::vector<relation_metadata> scan_relations(const flx_model& model);
 
   // Hierarchical operations helpers
-  virtual bool save_nested_objects(T& model);
-  virtual bool load_nested_objects(T& model);
-  virtual flx_string build_join_sql(const std::vector<relation_metadata>& relations);
-  virtual void map_joined_results(const flxv_map& row, T& model, const std::vector<relation_metadata>& relations);
+  virtual void save_nested_objects(flx_model& model);
+  virtual void load_nested_objects(flx_model& model);
+  virtual flx_string build_join_sql(const flx_model& model, const std::vector<relation_metadata>& relations);
+  virtual void map_joined_results(const flxv_map& row, flx_model& model, const std::vector<relation_metadata>& relations);
 
   // Hierarchical search helpers (public for testing)
   virtual flx_string find_primary_key_column(flx_model& model);
@@ -86,104 +87,134 @@ public:
 
 protected:
   db_connection* connection_;
-  flx_string table_name_;
   flx_string id_column_;
-  std::vector<flx_string> columns_;
   flx_string last_error_;
   flx_semantic_embedder* embedder_;
 
   // Helper methods
-  virtual flx_string build_insert_sql(const T& model);
-  virtual flx_string build_update_sql(const T& model);
-  virtual flx_string build_select_sql(const flx_string& where_clause = "");
-  virtual void bind_model_values(db_query* query, T& model);
-  virtual T map_to_model(const flxv_map& row);
+  virtual flx_string build_insert_sql(const flx_model& model);
+  virtual flx_string build_update_sql(const flx_model& model);
+  virtual flx_string build_select_sql(flx_model& model, const flx_string& where_clause = "");
+  virtual void bind_model_values(db_query* query, flx_model& model);
+  virtual void map_to_model(const flxv_map& row, flx_model& model);
   virtual flx_string get_sql_type(const flx_variant& value);
   virtual flx_string get_sql_type_from_state(flx_variant::state state);
-  virtual flx_variant access_nested_value(T& model, const flx_string& property_name);
-  virtual std::set<flx_string> get_existing_columns();  // Query database schema
+  virtual flx_variant access_nested_value(flx_model& model, const flx_string& property_name);
+  virtual std::set<flx_string> get_existing_columns(flx_model& model);  // Query database schema
+  virtual void ensure_child_table_from_model(flx_model* child_model);  // Create child table dynamically
+  virtual void save_nested_objects_impl(flx_model& model);  // Generic recursive save helper
+
+private:
+  // Helper structs and methods for save_nested_objects_impl refactoring (SRP)
+  struct child_source_info {
+    flx_model* single_child;
+    flx_list* model_list;
+    size_t item_count;
+  };
+
+  flx_variant validate_parent_id(flx_model& model);  // Throws db_null_id_error
+  flx_model* find_typed_child_model(flx_model& parent, const relation_metadata& rel);
+  std::vector<field_metadata> scan_child_field_metadata(flx_model* typed_child_model);
+  child_source_info determine_child_source(flx_model& model, const relation_metadata& rel);
+  flx_string build_child_insert_sql(const relation_metadata& rel, const std::vector<field_metadata>& fields);
+  void bind_and_execute_child_insert(db_query* query, const relation_metadata& rel, flx_model* item_model,
+                                       const flx_variant& parent_id, const std::vector<field_metadata>& fields);  // Throws db_query_error
+  long long retrieve_inserted_id();
+  void update_child_foreign_key(flx_model* item_model, const relation_metadata& rel,
+                                 const flx_variant& parent_id, const std::vector<field_metadata>& fields);
+
+  // Helper methods for build_hierarchy_query refactoring
+  flx_string build_vector_distance_expression(const db_search_criteria& criteria, const flx_string& root_table);
+  flx_string insert_joins_into_sql(const flx_string& sql, const flx_string& joins, const flx_string& root_table);
+
+  // Helper methods for scan_relations refactoring
+  relation_metadata scan_relation_from_model(flx_model* child_model, const flx_string& property_name, const flx_string& parent_table);
+
+  // Helper methods for search refactoring
+  void validate_search_prerequisites(flx_list& results);  // Throws db_connection_error
+  void execute_search_query(const db_search_criteria& criteria, flx_model& model, std::vector<flxv_map>& rows);  // Throws db_query_error
+  void process_search_results(const std::vector<flxv_map>& rows, flx_list& results);
+
+  // Helper methods for load_nested_objects refactoring
+  void load_child_relation(flx_model& model, const relation_metadata& rel, const flx_variant& parent_id);
+  void recursively_load_grandchildren(flx_model& model);
 };
 
 // Implementation
 
-template<typename T>
-db_repository<T>::db_repository(db_connection* conn, const flx_string& table_name)
+
+inline db_repository::db_repository(db_connection* conn)
   : connection_(conn)
-  , table_name_(table_name)
   , id_column_("id")
   , last_error_("")
   , embedder_(nullptr)
 {
 }
 
-template<typename T>
-void db_repository<T>::set_id_column(const flx_string& column_name)
+
+inline void db_repository::set_id_column(const flx_string& column_name)
 {
   id_column_ = column_name;
 }
 
-template<typename T>
-void db_repository<T>::set_embedder(flx_semantic_embedder* embedder)
+
+inline void db_repository::set_embedder(flx_semantic_embedder* embedder)
 {
   embedder_ = embedder;
 }
 
-template<typename T>
-void db_repository<T>::set_schema(const std::vector<flx_string>& columns)
-{
-  columns_ = columns;
-}
 
-template<typename T>
-flx_string db_repository<T>::get_last_error() const
+
+
+inline flx_string db_repository::get_last_error() const
 {
   return last_error_;
 }
 
-template<typename T>
-bool db_repository<T>::create(T& model)
-{
-  std::cerr << "[CREATE] START for table=" << table_name_.c_str() << std::endl;
 
+inline void db_repository::create(flx_model& model)
+{
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
+    throw db_connection_error("Not connected to database");
   }
 
   // AUTO-EMBED: Generate semantic embedding if embedder is set
   if (embedder_) {
-    std::cerr << "[CREATE] Generating embedding..." << std::endl;
     embedder_->embed_model(model);
-    std::cerr << "[CREATE] Embedding done" << std::endl;
   }
 
-  std::cerr << "[CREATE] Creating query..." << std::endl;
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query";
-    std::cerr << "[CREATE] FAILED to create query" << std::endl;
-    return false;
+    throw db_query_error("Failed to create query");
   }
 
-  std::cerr << "[CREATE] Building INSERT SQL..." << std::endl;
   flx_string sql = build_insert_sql(model);
+  flx_string table_name = extract_table_name(model);
+
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare insert: ") + query->get_last_error();
-    std::cerr << "[CREATE] FAILED to prepare" << std::endl;
-    return false;
+    flx_string error_msg = query->get_last_error();
+    // Check if table doesn't exist
+    if (error_msg.contains("does not exist") || error_msg.contains("relation") && error_msg.contains("does not exist")) {
+      throw db_table_not_found(table_name);
+    }
+    throw db_prepare_error("Failed to prepare insert", sql, error_msg);
   }
 
-  std::cerr << "[CREATE] Binding values..." << std::endl;
   bind_model_values(query.get(), model);
 
-  std::cerr << "[CREATE] Executing INSERT..." << std::endl;
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute insert: ") + query->get_last_error();
-    std::cerr << "[CREATE] FAILED to execute" << std::endl;
-    return false;
+    flx_string error_msg = query->get_last_error();
+    // Check for constraint violations
+    if (error_msg.contains("foreign key") || error_msg.contains("violates foreign key constraint")) {
+      // Parse FK details from error message (best effort)
+      throw db_foreign_key_violation(table_name, "", "", sql, error_msg);
+    }
+    if (error_msg.contains("unique") || error_msg.contains("duplicate key")) {
+      throw db_unique_violation(table_name, "", flx_variant());
+    }
+    throw db_query_error("Failed to execute insert", sql, error_msg);
   }
 
-  std::cerr << "[CREATE] Getting lastval..." << std::endl;
   // Get the inserted ID if available
   auto id_query = connection_->create_query();
   id_query->prepare("SELECT lastval()");
@@ -191,29 +222,26 @@ bool db_repository<T>::create(T& model)
     auto row = id_query->get_row();
     if (row.find("lastval") != row.end()) {
       model[id_column_] = row["lastval"];
-      std::cerr << "[CREATE] Got ID=" << row["lastval"].to_int() << std::endl;
     }
   }
 
   // AUTO-SAVE: Save nested objects
-  std::cerr << "[CREATE] Before save_nested_objects call" << std::endl;
-  bool result = save_nested_objects(model);
-  std::cerr << "[CREATE] After save_nested_objects call, result=" << result << std::endl;
-  if (!result) {
-    last_error_ = flx_string("Failed to save nested objects: ") + last_error_;
-    return false;
-  }
-
-  last_error_ = "";
-  return true;
+  save_nested_objects(model);
 }
 
-template<typename T>
-bool db_repository<T>::update(T& model)
+
+inline void db_repository::update(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
+    throw db_connection_error("Not connected to database");
+  }
+
+  flx_string table_name = extract_table_name(model);
+
+  // Check if ID is null
+  flx_variant id = model[id_column_];
+  if (id.in_state() == flx_variant::none) {
+    throw db_null_id_error("update", table_name);
   }
 
   // AUTO-EMBED: Generate semantic embedding if embedder is set
@@ -223,26 +251,23 @@ bool db_repository<T>::update(T& model)
 
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query";
-    return false;
+    throw db_query_error("Failed to create query");
   }
 
   flx_string sql = build_update_sql(model);
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare update: ") + query->get_last_error();
-    return false;
+    throw db_prepare_error("Failed to prepare update", sql, query->get_last_error());
   }
 
   bind_model_values(query.get(), model);
   query->bind("id_value", model[id_column_]);
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute update: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to execute update", sql, query->get_last_error());
   }
 
   // AUTO-UPDATE: Delete old nested objects and insert new ones
-  auto relations = scan_relations();
+  auto relations = scan_relations(model);
   if (!relations.empty()) {
     flx_variant parent_id = model[id_column_];
 
@@ -259,74 +284,67 @@ bool db_repository<T>::update(T& model)
     }
 
     // Insert new child objects
-    if (!save_nested_objects(model)) {
-      last_error_ = flx_string("Failed to update nested objects: ") + last_error_;
-      return false;
-    }
+    save_nested_objects(model);
   }
-
-  last_error_ = "";
-  return true;
 }
 
-template<typename T>
-bool db_repository<T>::remove(T& model)
+
+inline void db_repository::remove(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
+    throw db_connection_error("Not connected to database");
+  }
+
+  flx_string table_name = extract_table_name(model);
+
+  // Check if ID is null
+  flx_variant id = model[id_column_];
+  if (id.in_state() == flx_variant::none) {
+    throw db_null_id_error("delete", table_name);
   }
 
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query";
-    return false;
+    throw db_query_error("Failed to create query");
   }
 
-  flx_string sql = flx_string("DELETE FROM ") + table_name_ + " WHERE " + id_column_ + " = :id_value";
+  flx_string sql = flx_string("DELETE FROM ") + table_name + " WHERE " + id_column_ + " = :id_value";
 
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare delete: ") + query->get_last_error();
-    return false;
+    throw db_prepare_error("Failed to prepare delete", sql, query->get_last_error());
   }
 
   query->bind("id_value", model[id_column_]);
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute delete: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to execute delete", sql, query->get_last_error());
   }
-
-  last_error_ = "";
-  return true;
 }
 
-template<typename T>
-bool db_repository<T>::find_by_id(long long id, T& model)
+
+inline void db_repository::find_by_id(long long id, flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
+    throw db_connection_error("Not connected to database");
   }
+
+  flx_string table_name = extract_table_name(model);
 
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query";
-    return false;
+    throw db_query_error("Failed to create query");
   }
 
-  flx_string sql = build_select_sql(id_column_ + " = :id_value");
+  flx_string sql = build_select_sql(model, id_column_ + " = :id_value");
 
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare select: ") + query->get_last_error();
-    return false;
+    throw db_prepare_error("Failed to prepare select", sql, query->get_last_error());
   }
 
   query->bind("id_value", flx_variant(id));
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute select: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to execute select", sql, query->get_last_error());
   }
 
   if (query->next()) {
@@ -342,46 +360,48 @@ bool db_repository<T>::find_by_id(long long id, T& model)
     // AUTO-LOAD: Load nested objects
     load_nested_objects(model);
 
-    last_error_ = "";
-    return true;
+    return;
   }
 
-  last_error_ = "Record not found";
-  return false;
+  // Record not found - throw exception
+  throw db_record_not_found(table_name, id);
 }
 
-template<typename T>
-bool db_repository<T>::find_all(flx_model_list<T>& results)
+
+inline void db_repository::find_all(flx_list& results)
 {
-  return find_where("", results);
+  find_where("", results);
 }
 
-template<typename T>
-bool db_repository<T>::find_where(const flx_string& condition, flx_model_list<T>& results)
+
+inline void db_repository::find_where(const flx_string& condition, flx_list& results)
 {
   results.clear();
 
+  // Get sample model from list factory
+  auto sample = results.factory();
+  if (sample.is_null()) {
+    throw db_query_error("Failed to create sample model from list factory");
+  }
+  flx_model& model = *sample;
+
   if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
+    throw db_connection_error("Not connected to database");
   }
 
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query";
-    return false;
+    throw db_query_error("Failed to create query");
   }
 
-  flx_string sql = build_select_sql(condition);
+  flx_string sql = build_select_sql(model, condition);
 
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare select: ") + query->get_last_error();
-    return false;
+    throw db_prepare_error("Failed to prepare select", sql, query->get_last_error());
   }
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute select: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to execute select", sql, query->get_last_error());
   }
 
   // Make a copy of rows to avoid issues with query object reuse
@@ -391,7 +411,7 @@ bool db_repository<T>::find_where(const flx_string& condition, flx_model_list<T>
   for (size_t i = 0; i < rows_copy.size(); ++i) {
     const auto& row = rows_copy[i];
 
-    T model;
+    flx_model model;
     // First: Copy ALL raw columns (including "id" and other non-property columns)
     for (const auto& pair : row) {
       model[pair.first] = pair.second;
@@ -402,15 +422,15 @@ bool db_repository<T>::find_where(const flx_string& condition, flx_model_list<T>
     // AUTO-LOAD: Load nested objects for each result
     load_nested_objects(model);
 
-    results.push_back(model);
+    // Add new element to results and copy data
+    results.add_element();
+    *results.back() = *model;  // Copy map data
+    results.back().resync();   // Resync child pointers
   }
-
-  last_error_ = "";
-  return true;
 }
 
-template<typename T>
-bool db_repository<T>::table_exists()
+
+inline bool db_repository::table_exists(flx_model& model)
 {
   if (!connection_ || !connection_->is_connected()) {
     last_error_ = "Not connected to database";
@@ -419,7 +439,7 @@ bool db_repository<T>::table_exists()
 
   auto query = connection_->create_query();
   query->prepare("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table_name)");
-  query->bind("table_name", flx_variant(table_name_));
+  query->bind("table_name", flx_variant(extract_table_name(model)));
 
   if (query->execute() && query->next()) {
     auto row = query->get_row();
@@ -429,18 +449,19 @@ bool db_repository<T>::table_exists()
   return false;
 }
 
-template<typename T>
-bool db_repository<T>::create_table()
+
+inline void db_repository::create_table(flx_model& model)
 {
-  if (columns_.empty()) {
-    last_error_ = "No schema defined. Call set_schema() or auto_configure() first.";
-    return false;
+  // Scan fields to get proper types from metadata
+  auto fields = scan_fields(model);
+
+  if (fields.empty()) {
+    flx_string table_name = extract_table_name(model);
+    throw db_no_fields_error(table_name);
   }
 
-  // Scan fields to get proper types from metadata
-  auto fields = scan_fields();
-
-  flx_string sql = flx_string("CREATE TABLE IF NOT EXISTS ") + table_name_ + " (\n";
+  flx_string table_name = extract_table_name(model);
+  flx_string sql = flx_string("CREATE TABLE IF NOT EXISTS ") + table_name + " (\n";
   sql += "  " + id_column_ + " SERIAL PRIMARY KEY";
 
   for (const auto& field : fields) {
@@ -456,35 +477,49 @@ bool db_repository<T>::create_table()
   query->prepare(sql);
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to create table: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to create table", sql, query->get_last_error());
   }
 
-  last_error_ = "";
-  return true;
+  // Add foreign key constraints with CASCADE DELETE
+  for (const auto& field : fields) {
+    if (field.is_foreign_key && !field.foreign_table.empty()) {
+      flx_string constraint_name = table_name + "_" + field.column_name + "_fkey";
+      flx_string fk_sql = "ALTER TABLE " + table_name +
+                          " ADD CONSTRAINT " + constraint_name +
+                          " FOREIGN KEY (" + field.column_name + ")" +
+                          " REFERENCES " + field.foreign_table + "(id)" +
+                          " ON DELETE CASCADE";
+
+      auto fk_query = connection_->create_query();
+      if (!fk_query->prepare(fk_sql)) {
+        throw db_prepare_error("Failed to prepare FK constraint", fk_sql, fk_query->get_last_error());
+      }
+
+      if (!fk_query->execute()) {
+        // Ignore if constraint already exists
+      }
+    }
+  }
 }
 
-template<typename T>
-bool db_repository<T>::drop_table()
+
+inline void db_repository::drop_table(flx_model& model)
 {
   auto query = connection_->create_query();
-  query->prepare(flx_string("DROP TABLE IF EXISTS ") + table_name_);
+  flx_string sql = flx_string("DROP TABLE IF EXISTS ") + extract_table_name(model);
+  query->prepare(sql);
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to drop table: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to drop table", sql, query->get_last_error());
   }
-
-  last_error_ = "";
-  return true;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_insert_sql(const T& model)
-{
-  auto fields = scan_fields();
 
-  flx_string sql = flx_string("INSERT INTO ") + table_name_ + " (";
+inline flx_string db_repository::build_insert_sql(const flx_model& model)
+{
+  auto fields = scan_fields(model);
+
+  flx_string sql = flx_string("INSERT INTO ") + extract_table_name(model) + " (";
   flx_string values = " VALUES (";
 
   bool first = true;
@@ -504,12 +539,12 @@ flx_string db_repository<T>::build_insert_sql(const T& model)
   return sql;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_update_sql(const T& model)
-{
-  auto fields = scan_fields();
 
-  flx_string sql = flx_string("UPDATE ") + table_name_ + " SET ";
+inline flx_string db_repository::build_update_sql(const flx_model& model)
+{
+  auto fields = scan_fields(model);
+
+  flx_string sql = flx_string("UPDATE ") + extract_table_name(model) + " SET ";
 
   bool first = true;
   for (const auto& field : fields) {
@@ -524,10 +559,10 @@ flx_string db_repository<T>::build_update_sql(const T& model)
   return sql;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_select_sql(const flx_string& where_clause)
+
+inline flx_string db_repository::build_select_sql(flx_model& model, const flx_string& where_clause)
 {
-  flx_string sql = flx_string("SELECT * FROM ") + table_name_;
+  flx_string sql = flx_string("SELECT * FROM ") + extract_table_name(model);
 
   if (!where_clause.empty()) {
     sql += " WHERE " + where_clause;
@@ -536,10 +571,10 @@ flx_string db_repository<T>::build_select_sql(const flx_string& where_clause)
   return sql;
 }
 
-template<typename T>
-void db_repository<T>::bind_model_values(db_query* query, T& model)
+
+inline void db_repository::bind_model_values(db_query* query, flx_model& model)
 {
-  auto fields = scan_fields();
+  auto fields = scan_fields(model);
   const auto& properties = model.get_properties();
 
   for (const auto& field : fields) {
@@ -558,17 +593,17 @@ void db_repository<T>::bind_model_values(db_query* query, T& model)
     }
 
     // DEBUG
-    std::cout << "[bind] property=" << field.property_name.c_str()
-              << " column=" << field.column_name.c_str()
-              << " value=" << (value.is_null() ? "NULL" : "HAS_VALUE") << std::endl;
+    // std::cout << "[bind] property=" << field.property_name.c_str()
+    //           << " column=" << field.column_name.c_str()
+    //           << " value=" << (value.is_null() ? "NULL" : "HAS_VALUE") << std::endl;
 
     query->bind(field.column_name, value);  // Bind with column_name (DB column)
   }
 }
 
 // Helper function to access nested values (handles "/" separator like flx_property_i::access())
-template<typename T>
-flx_variant db_repository<T>::access_nested_value(T& model, const flx_string& property_name)
+
+inline flx_variant db_repository::access_nested_value(flx_model& model, const flx_string& property_name)
 {
   // Check if name contains "/" for nested access
   if (property_name.contains("/")) {
@@ -599,20 +634,16 @@ flx_variant db_repository<T>::access_nested_value(T& model, const flx_string& pr
   return model[property_name];
 }
 
-template<typename T>
-T db_repository<T>::map_to_model(const flxv_map& row)
-{
-  T model;
 
+inline void db_repository::map_to_model(const flxv_map& row, flx_model& model)
+{
   for (const auto& pair : row) {
     model[pair.first] = pair.second;
   }
-
-  return model;
 }
 
-template<typename T>
-flx_string db_repository<T>::get_sql_type(const flx_variant& value)
+
+inline flx_string db_repository::get_sql_type(const flx_variant& value)
 {
   if (value.is_string()) return "VARCHAR(255)";
   if (value.is_int()) return "BIGINT";
@@ -621,8 +652,8 @@ flx_string db_repository<T>::get_sql_type(const flx_variant& value)
   return "TEXT";
 }
 
-template<typename T>
-flx_string db_repository<T>::get_sql_type_from_state(flx_variant::state state)
+
+inline flx_string db_repository::get_sql_type_from_state(flx_variant::state state)
 {
   switch (state) {
     case flx_variant::string_state:
@@ -644,71 +675,32 @@ flx_string db_repository<T>::get_sql_type_from_state(flx_variant::state state)
 
 // Metadata-based automation implementations
 
-template<typename T>
-std::vector<typename db_repository<T>::field_metadata> db_repository<T>::scan_fields()
+
+inline std::vector<db_repository::field_metadata> db_repository::scan_fields(const flx_model& model)
 {
   std::vector<field_metadata> fields;
-  T sample_model;
 
-  const auto& properties = sample_model.get_properties();
-
-  std::cout << "[scan_fields] Total properties: " << properties.size() << std::endl;
-  std::cout << "[scan_fields] columns_ size: " << columns_.size() << std::endl;
+  const auto& properties = model.get_properties();
 
   for (const auto& prop_pair : properties) {
     const flx_string& prop_name = prop_pair.first;
     flx_property_i* prop = prop_pair.second;
 
-    std::cout << "[scan_fields] Checking property: " << prop_name.c_str() << std::endl;
-
     // Get metadata first
     const flxv_map& meta = prop->get_meta();
 
-    // If schema is explicitly set, only include properties in columns_
-    if (!columns_.empty()) {
-      // Use column metadata if available
-      flx_string check_name;
-      if (meta.find("column") != meta.end()) {
-        flx_variant column_var = meta.at("column");  // Non-const copy
-        check_name = column_var.to_string();
-        std::cout << "[scan_fields]   Has column metadata: " << check_name.c_str() << std::endl;
-      } else {
-        // No column metadata - skip this property when columns_ is set
-        std::cout << "[scan_fields]   SKIPPED (no column metadata)" << std::endl;
-        continue;
-      }
-
-      bool found = false;
-      for (const auto& col : columns_) {
-        if (col == check_name) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        std::cout << "[scan_fields]   SKIPPED (not in columns_)" << std::endl;
-        continue;
-      }
-      std::cout << "[scan_fields]   FOUND in columns_" << std::endl;
-    }
-
-    // Skip relation properties (those with "table" metadata)
-    if (meta.find("table") != meta.end()) {
+    // REQUIRED: column metadata must exist (no fallback!)
+    if (meta.find("column") == meta.end()) {
+      // std::cout << "[scan_fields]   SKIPPED (no column metadata)" << std::endl;
       continue;
     }
 
     field_metadata field;
     field.property_name = prop_name;  // C++ name for main model properties
     field.cpp_name = prop_name;       // Same as property_name for main models
+    field.column_name = meta.at("column").string_value();
 
-    // Check for column name override
-    if (meta.find("column") != meta.end()) {
-      field.column_name = meta.at("column").string_value();
-    } else {
-      field.column_name = prop_name;
-    }
-
-    // Check for primary key
+    // Check for primary key (value contains table name)
     field.is_primary_key = (meta.find("primary_key") != meta.end());
 
     // Check for foreign key
@@ -728,69 +720,45 @@ std::vector<typename db_repository<T>::field_metadata> db_repository<T>::scan_fi
   return fields;
 }
 
-template<typename T>
-std::vector<typename db_repository<T>::relation_metadata> db_repository<T>::scan_relations()
+
+inline std::vector<db_repository::relation_metadata> db_repository::scan_relations(const flx_model& model)
 {
   std::vector<relation_metadata> relations;
-  T sample_model;
+  flx_string parent_table = extract_table_name(model);
 
-  const auto& properties = sample_model.get_properties();
-
-  std::cerr << "[scan_relations] Scanning properties for relations..." << std::endl;
-
-  for (const auto& prop_pair : properties) {
-    flx_property_i* prop = prop_pair.second;
-    const flxv_map& meta = prop->get_meta();
-
-    // Check if this is a relation (has "table" metadata)
-    if (meta.find("table") != meta.end()) {
-      relation_metadata rel;
-
-      // Use fieldname as property_name (fieldname overrides C++ name everywhere)
-      if (meta.find("fieldname") != meta.end()) {
-        rel.property_name = meta.at("fieldname").string_value();
-      } else {
-        rel.property_name = prop_pair.first;  // fallback to C++ name
-      }
-
-      rel.related_table = meta.at("table").string_value();
-
-      // Get foreign key column from relation metadata
-      if (meta.find("foreign_key") != meta.end()) {
-        rel.foreign_key_column = meta.at("foreign_key").string_value();
-      } else {
-        // Default: infer from table name (remove 's' and add '_id')
-        flx_string parent_table = table_name_;
-        if (parent_table.ends_with("s")) {
-          parent_table = parent_table.substr(0, parent_table.length() - 1);
-        }
-        rel.foreign_key_column = parent_table + "_id";
-      }
-
-      std::cerr << "[scan_relations] Found relation: property=" << rel.property_name.c_str()
-                << " table=" << rel.related_table.c_str()
-                << " fk=" << rel.foreign_key_column.c_str() << std::endl;
-
+  // Process flxp_model (1:1 relations)
+  const auto& children = model.get_children();
+  for (const auto& [child_name, child_ptr] : children) {
+    auto rel = scan_relation_from_model(child_ptr, child_name, parent_table);
+    if (!rel.related_table.empty() && !rel.foreign_key_column.empty()) {
       relations.push_back(rel);
     }
   }
 
-  std::cerr << "[scan_relations] Total relations found: " << relations.size() << std::endl;
+  // Process flxp_model_list (1:N relations)
+  const auto& model_lists = model.get_model_lists();
+  for (const auto& [list_name, list_ptr] : model_lists) {
+    if (list_ptr == nullptr) continue;
+    auto sample_elem = list_ptr->factory();  // Get sample element for structure
+    if (sample_elem.is_null()) continue;
+
+    auto rel = scan_relation_from_model(&(*sample_elem), list_name, parent_table);
+    if (!rel.related_table.empty() && !rel.foreign_key_column.empty()) {
+      relations.push_back(rel);
+    }
+  }
+
   return relations;
 }
 
-template<typename T>
-bool db_repository<T>::auto_configure()
+
+inline void db_repository::auto_configure(flx_model& model)
 {
   // Scan fields from metadata
-  auto fields = scan_fields();
+  auto fields = scan_fields(model);
 
-  // Build columns list and find primary key
-  columns_.clear();
-
+  // Find primary key
   for (const auto& field : fields) {
-    columns_.push_back(field.column_name);
-
     if (field.is_primary_key) {
       id_column_ = field.column_name;
     }
@@ -800,74 +768,43 @@ bool db_repository<T>::auto_configure()
   if (id_column_.empty()) {
     id_column_ = "id";
   }
-
-  return true;
 }
 
-template<typename T>
-bool db_repository<T>::search(const db_search_criteria& criteria, flx_model_list<T>& results)
+
+inline flx_string db_repository::extract_table_name(const flx_model& model)
 {
-  results.clear();
+  const auto& properties = model.get_properties();
 
-  if (!connection_ || !connection_->is_connected()) {
-    last_error_ = "Not connected to database";
-    return false;
-  }
+  // Find property with primary_key metadata
+  for (const auto& prop_pair : properties) {
+    flx_property_i* prop = prop_pair.second;
+    const flxv_map& meta = prop->get_meta();
 
-  // Build query using query builder
-  db_query_builder builder;
-  builder.from(table_name_);
-
-  // Apply search criteria
-  criteria.apply_to(builder);
-
-  flx_string sql = builder.build_select();
-
-  auto query = connection_->create_query();
-  if (!query) {
-    last_error_ = "Failed to create query";
-    return false;
-  }
-
-  if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare search query: ") + query->get_last_error();
-    return false;
-  }
-
-  // Bind parameters from query builder
-  const auto& params = builder.get_parameters();
-  for (const auto& param : params) {
-    query->bind(param.first, param.second);
-  }
-
-  if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute search: ") + query->get_last_error();
-    return false;
-  }
-
-  // Make a copy of rows to avoid issues with query object reuse during nested loading
-  std::vector<flxv_map> rows_copy = query->get_all_rows();
-
-  // Use index-based iteration
-  for (size_t i = 0; i < rows_copy.size(); ++i) {
-    const auto& row = rows_copy[i];
-
-    T model;
-    // First: Copy ALL raw columns (including "id" and other non-property columns)
-    for (const auto& pair : row) {
-      model[pair.first] = pair.second;
+    if (meta.find("primary_key") != meta.end()) {
+      // Value of primary_key is the table name
+      return meta.at("primary_key").string_value();
     }
-    // Second: Let read_row create nested structures for properties with paths
-    model.read_row(row);
-
-    // AUTO-LOAD: Load nested objects for each result
-    load_nested_objects(model);
-
-    results.push_back(model);
   }
 
-  last_error_ = "";
-  return true;
+  // Fallback: empty string (will cause error)
+  return "";
+}
+
+
+inline void db_repository::search(const db_search_criteria& criteria, flx_list& results)
+{
+  validate_search_prerequisites(results);
+
+  auto sample = results.factory();  // Keep sample alive for entire function
+  if (sample.is_null()) {
+    throw db_query_error("Failed to create sample model from list factory");
+  }
+  flx_model& model = *sample;
+
+  std::vector<flxv_map> rows;
+  execute_search_query(criteria, model, rows);
+
+  process_search_results(rows, results);
 }
 
 // Hierarchical operations implementations
@@ -901,345 +838,448 @@ inline flx_variant* navigate_nested_map(flxv_map& root, const flx_string& path) 
   return current;
 }
 
-template<typename T>
-bool db_repository<T>::save_nested_objects(T& model)
+
+inline void db_repository::save_nested_objects(flx_model& model)
 {
-  std::cerr << "[save_nested_objects] START" << std::endl;
-  auto relations = scan_relations();
-
-  std::cerr << "[save_nested_objects] Found " << relations.size() << " relations" << std::endl;
-
-  if (relations.empty()) {
-    return true;  // No nested objects to save
-  }
-
-  // Get parent ID
-  flx_variant parent_id = model[id_column_];
-  if (parent_id.in_state() == flx_variant::none) {
-    last_error_ = "Cannot save nested objects: parent ID is null";
-    return false;
-  }
-
-  const auto& properties = model.get_properties();
-
-  for (const auto& rel : relations) {
-    std::cerr << "[save_nested_objects] Processing relation: " << rel.property_name.c_str()
-              << " (table=" << rel.related_table.c_str() << ")" << std::endl;
-    // Find the property with this relation
-    // Note: flxp_model_list registers the property with the base name, not name##_vec
-    auto prop_it = properties.find(rel.property_name);
-    if (prop_it == properties.end()) {
-      std::cerr << "[save_nested_objects] Property not found in properties, skipping" << std::endl;
-      continue;  // Relation property not found
-    }
-
-    std::cerr << "[save_nested_objects] Property found, getting data..." << std::endl;
-    // Get the property data (can be vector for model_lists or map for single models)
-    flx_variant& data = model[rel.property_name];
-
-    std::cerr << "[save_nested_objects] data.is_vector()=" << data.is_vector()
-              << " data.is_map()=" << data.is_map()
-              << " data.in_state()=" << data.in_state() << std::endl;
-
-    // Convert to vector for unified processing
-    flxv_vector items;
-    if (data.is_vector()) {
-      items = data.vector_value();
-      std::cerr << "[save_nested_objects] Got vector with " << items.size() << " items" << std::endl;
-    } else if (data.is_map()) {
-      // Single model - wrap in vector with one element
-      items.push_back(data);
-      std::cerr << "[save_nested_objects] Got map, wrapped as single item" << std::endl;
-    } else {
-      std::cerr << "[save_nested_objects] Data is neither vector nor map, skipping" << std::endl;
-      continue;  // Not a model or model_list
-    }
-
-    // Skip empty lists
-    if (items.empty()) {
-      std::cerr << "[save_nested_objects] Items empty, skipping" << std::endl;
-      continue;
-    }
-
-    // Get the typed child model - try children first (single models), then model_lists
-    flx_model* typed_child_model = nullptr;
-
-    const auto& children = model.get_children();
-    auto child_it = children.find(rel.property_name);
-    if (child_it != children.end() && child_it->second != nullptr) {
-      // Single nested model (flxp_model)
-      typed_child_model = child_it->second;
-    } else {
-      // Try model_lists (flxp_model_list)
-      const auto& lists = model.get_model_lists();
-      auto list_it = lists.find(rel.property_name);
-      if (list_it != lists.end() && list_it->second != nullptr && list_it->second->list_size() > 0) {
-        // Get first item from list for schema reflection
-        typed_child_model = list_it->second->get_model_at(0);
-      } else {
-        // Can't determine schema - skip this relation
-        continue;
-      }
-    }
-
-    // Scan fields from the typed child model to get column metadata
-    std::vector<field_metadata> child_fields;
-    const auto& child_props = typed_child_model->get_properties();
-    for (const auto& prop_pair : child_props) {
-      flx_property_i* prop = prop_pair.second;
-      const flxv_map& meta = prop->get_meta();
-
-      // Only include properties with "column" metadata
-      if (meta.find("column") == meta.end()) {
-        continue;
-      }
-
-      // Skip relation properties (those with "table" metadata)
-      if (meta.find("table") != meta.end()) {
-        continue;
-      }
-
-      field_metadata field;
-      // CRITICAL: Store C++ name for map lookup (properties are stored with C++ names)
-      field.cpp_name = prop_pair.first;
-
-      // Use fieldname for XML path navigation (legacy)
-      if (meta.find("fieldname") != meta.end()) {
-        field.property_name = meta.at("fieldname").string_value();
-      } else {
-        // Fallback to C++ name if no fieldname
-        field.property_name = prop_pair.first;
-      }
-      field.column_name = meta.at("column").string_value();
-      field.type = prop->get_variant_type();
-      child_fields.push_back(field);
-    }
-
-    // Check if this is a single child model or a model_list
-    const auto& children_for_save = model.get_children();
-    const auto& lists_for_save = model.get_model_lists();
-
-    flx_model* single_child = nullptr;
-    flx_list* model_list = nullptr;
-
-    auto child_save_it = children_for_save.find(rel.property_name);
-    if (child_save_it != children_for_save.end()) {
-      single_child = child_save_it->second;
-      std::cout << "[DEBUG] Found single child: " << rel.property_name.c_str() << std::endl;
-    } else {
-      auto list_save_it = lists_for_save.find(rel.property_name);
-      if (list_save_it != lists_for_save.end()) {
-        model_list = list_save_it->second;
-        std::cout << "[DEBUG] Found model_list: " << rel.property_name.c_str()
-                  << " size=" << model_list->list_size() << std::endl;
-      } else {
-        std::cout << "[DEBUG] Neither child nor list found: " << rel.property_name.c_str() << std::endl;
-      }
-    }
-
-    // Determine how many items to insert
-    size_t item_count = 0;
-    if (single_child != nullptr) {
-      item_count = 1;  // Single nested model
-    } else if (model_list != nullptr) {
-      item_count = model_list->list_size();
-    } else {
-      item_count = items.size();  // Fallback to variant items
-    }
-
-    // Now insert each item using the proper column mapping
-    for (size_t item_idx = 0; item_idx < item_count; ++item_idx) {
-      // Get the typed model directly from single_child or model_list
-      flx_model* item_model = nullptr;
-
-      if (single_child != nullptr) {
-        item_model = single_child;  // Single nested model
-      } else if (model_list != nullptr && item_idx < model_list->list_size()) {
-        item_model = model_list->get_model_at(item_idx);  // List item
-      }
-
-      if (item_model == nullptr) {
-        continue;
-      }
-
-      // Build insert SQL for child object using column metadata
-      flx_string child_sql = "INSERT INTO " + rel.related_table + " (";
-      flx_string values_sql = " VALUES (";
-
-      bool first = true;
-
-      // Add foreign key column first
-      child_sql += rel.foreign_key_column;
-      values_sql += flx_string(":") + rel.foreign_key_column;
-      first = false;
-
-      // Add fields using column metadata
-      for (const auto& field : child_fields) {
-        // Skip ID column (let database auto-generate via DEFAULT)
-        if (field.column_name == id_column_) {
-          continue;
-        }
-
-        // Skip foreign key column (already added above)
-        if (field.column_name == rel.foreign_key_column) {
-          continue;
-        }
-
-        if (!first) {
-          child_sql += ", ";
-          values_sql += ", ";
-        }
-        child_sql += field.column_name;
-        values_sql += flx_string(":") + field.column_name;
-        first = false;
-      }
-
-      child_sql += ")" + values_sql + ")";
-
-      std::cout << "[SQL] " << child_sql.c_str() << std::endl;
-
-      auto child_query = connection_->create_query();
-      if (!child_query->prepare(child_sql)) {
-        last_error_ = "Failed to prepare child insert: " + child_query->get_last_error();
-        return false;
-      }
-
-      // Bind foreign key first
-      child_query->bind(rel.foreign_key_column, parent_id);
-      std::cout << "[SQL BIND] " << rel.foreign_key_column.c_str() << " = " << parent_id.to_string().c_str() << std::endl;
-
-      // Bind field values by accessing properties directly from the model
-      const auto& item_properties = item_model->get_properties();
-      for (const auto& field : child_fields) {
-        // Skip ID column (already skipped in SQL)
-        if (field.column_name == id_column_) {
-          continue;
-        }
-
-        // Skip foreign key column (already bound above)
-        if (field.column_name == rel.foreign_key_column) {
-          continue;
-        }
-
-        // CRITICAL: Use cpp_name to find property in the model (properties keyed by C++ names)
-        auto prop_it = item_properties.find(field.cpp_name);
-
-        flx_variant value;
-        if (prop_it != item_properties.end()) {
-          // Access property value directly
-          value = prop_it->second->access();
-          std::cout << "[SQL BIND] " << field.column_name.c_str() << " = "
-                    << (value.is_null() ? "NULL" : value.to_string().c_str()) << std::endl;
-        } else {
-          // Property not found - bind NULL
-          std::cout << "[SQL BIND] " << field.column_name.c_str() << " = NULL (property not found)" << std::endl;
-        }
-
-        child_query->bind(field.column_name, value);
-      }
-
-      if (!child_query->execute()) {
-        last_error_ = "Failed to execute child insert: " + child_query->get_last_error();
-        return false;
-      }
-    }
-  }
-
-  return true;
+  save_nested_objects_impl(model);
 }
 
-template<typename T>
-bool db_repository<T>::load_nested_objects(T& model)
+
+inline void db_repository::save_nested_objects_impl(flx_model& model)
 {
-  auto relations = scan_relations();
+  auto relations = scan_relations(model);
+  if (relations.empty()) return;
 
-  std::cout << "[LOAD] Loading nested objects, found " << relations.size() << " relations" << std::endl;
-
-  if (relations.empty()) {
-    return true;  // No nested objects to load
-  }
-
-  // Get parent ID
-  flx_variant parent_id = model[id_column_];
-  if (parent_id.in_state() == flx_variant::none) {
-    std::cout << "[LOAD] Parent ID is null, skipping" << std::endl;
-    return true;  // No ID, nothing to load
-  }
-
-  std::cout << "[LOAD] Parent ID: " << parent_id.to_string().c_str() << std::endl;
+  flx_variant parent_id = validate_parent_id(model);
 
   for (const auto& rel : relations) {
-    // Load child objects
-    flx_string child_sql = "SELECT * FROM " + rel.related_table +
-                           " WHERE " + rel.foreign_key_column + " = :parent_id";
+    flx_model* typed_child = find_typed_child_model(model, rel);
+    if (typed_child == nullptr) continue;
 
-    std::cout << "[LOAD SQL] " << child_sql.c_str() << std::endl;
-    std::cout << "[LOAD BIND] parent_id = " << parent_id.to_string().c_str() << std::endl;
+    auto child_fields = scan_child_field_metadata(typed_child);
+    auto source_info = determine_child_source(model, rel);
+    if (source_info.item_count == 0) continue;
 
-    auto child_query = connection_->create_query();
-    if (!child_query->prepare(child_sql)) {
-      std::cout << "[LOAD] Failed to prepare: " << child_query->get_last_error().c_str() << std::endl;
-      continue;
-    }
+    flx_string insert_sql = build_child_insert_sql(rel, child_fields);
 
-    child_query->bind("parent_id", parent_id);
+    for (size_t i = 0; i < source_info.item_count; ++i) {
+      flx_model* item = (source_info.single_child != nullptr) ? source_info.single_child : source_info.model_list->get_model_at(i);
+      if (item == nullptr) continue;
 
-    if (!child_query->execute()) {
-      std::cout << "[LOAD] Failed to execute: " << child_query->get_last_error().c_str() << std::endl;
-      continue;
-    }
-
-    auto child_rows = child_query->get_all_rows();
-
-    std::cout << "[LOAD] Found " << child_rows.size() << " child rows for " << rel.property_name.c_str() << std::endl;
-
-    // Check if this is a single model (children) or model_list (model_lists)
-    const auto& children = model.get_children();
-    const auto& lists = model.get_model_lists();
-
-    bool is_single_model = (children.find(rel.property_name) != children.end());
-    bool is_model_list = (lists.find(rel.property_name) != lists.end());
-
-    if (is_single_model && !child_rows.empty()) {
-      // Single nested model (flxp_model) - set the map directly
-      model[rel.property_name] = flx_variant(child_rows[0]);
-      std::cout << "[LOAD] Set single model[" << rel.property_name.c_str() << "] from first row" << std::endl;
-    } else if (is_model_list || !is_single_model) {
-      // Model list (flxp_model_list) - create vector
-      flxv_vector children_vec;
-      for (const auto& child_row : child_rows) {
-        children_vec.push_back(flx_variant(child_row));
+      auto query = connection_->create_query();
+      if (!query->prepare(insert_sql)) {
+        throw db_prepare_error("Failed to prepare child insert", insert_sql, query->get_last_error());
       }
-      model[rel.property_name] = flx_variant(children_vec);
-      std::cout << "[LOAD] Set model_list[" << rel.property_name.c_str() << "] with " << children_vec.size() << " items" << std::endl;
+
+      bind_and_execute_child_insert(query.get(), rel, item, parent_id, child_fields);
+      update_child_foreign_key(item, rel, parent_id, child_fields);
+
+      save_nested_objects_impl(*item);  // Recursive save grandchildren
     }
-
   }
-
-  // Resync all typed child models to point to the loaded data
-  std::cout << "[LOAD] Calling resync() to update typed child models" << std::endl;
-  model.resync();
-
-  return true;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_join_sql(const std::vector<relation_metadata>& relations)
+// ============================================================================
+// Helper Methods for save_nested_objects_impl (SRP Refactoring)
+// ============================================================================
+
+inline flx_variant db_repository::validate_parent_id(flx_model& model)
+{
+  flx_variant parent_id = model[id_column_];
+  if (parent_id.in_state() == flx_variant::none) {
+    flx_string table_name = extract_table_name(model);
+    throw db_null_id_error("save nested objects", table_name);
+  }
+  return parent_id;
+}
+
+inline flx_model* db_repository::find_typed_child_model(flx_model& parent, const relation_metadata& rel)
+{
+  // Try single nested model first (flxp_model)
+  const auto& children = parent.get_children();
+  auto child_it = children.find(rel.property_name);
+  if (child_it != children.end() && child_it->second != nullptr) {
+    return child_it->second;
+  }
+
+  // Try model_lists (flxp_model_list)
+  const auto& lists = parent.get_model_lists();
+  auto list_it = lists.find(rel.property_name);
+  if (list_it != lists.end() && list_it->second != nullptr && list_it->second->list_size() > 0) {
+    return list_it->second->get_model_at(0);  // Get first item for schema reflection
+  }
+
+  return nullptr;  // Can't determine schema
+}
+
+inline std::vector<db_repository::field_metadata> db_repository::scan_child_field_metadata(flx_model* typed_child_model)
+{
+  std::vector<field_metadata> child_fields;
+
+  const auto& child_props = typed_child_model->get_properties();
+  for (const auto& prop_pair : child_props) {
+    flx_property_i* prop = prop_pair.second;
+    const flxv_map& meta = prop->get_meta();
+
+    // Only include properties with "column" metadata
+    if (meta.find("column") == meta.end()) {
+      continue;
+    }
+
+    field_metadata field;
+    field.cpp_name = prop_pair.first;  // C++ name for map lookup
+
+    // Use fieldname for XML path navigation (legacy)
+    if (meta.find("fieldname") != meta.end()) {
+      field.property_name = meta.at("fieldname").string_value();
+    } else {
+      field.property_name = prop_pair.first;  // Fallback to C++ name
+    }
+
+    field.column_name = meta.at("column").string_value();
+    field.type = prop->get_variant_type();
+    child_fields.push_back(field);
+  }
+
+  return child_fields;
+}
+
+inline db_repository::child_source_info db_repository::determine_child_source(flx_model& model, const relation_metadata& rel)
+{
+  child_source_info info{nullptr, nullptr, 0};
+
+  const auto& children = model.get_children();
+  auto child_it = children.find(rel.property_name);
+  if (child_it != children.end()) {
+    info.single_child = child_it->second;
+    info.item_count = 1;
+    return info;
+  }
+
+  const auto& lists = model.get_model_lists();
+  auto list_it = lists.find(rel.property_name);
+  if (list_it != lists.end()) {
+    info.model_list = list_it->second;
+    info.item_count = list_it->second->list_size();
+  }
+
+  return info;
+}
+
+inline flx_string db_repository::build_child_insert_sql(const relation_metadata& rel, const std::vector<field_metadata>& fields)
+{
+  flx_string sql = "INSERT INTO " + rel.related_table + " (";
+  flx_string values = " VALUES (";
+  bool first = true;
+
+  // Add foreign key column first
+  sql += rel.foreign_key_column;
+  values += flx_string(":") + rel.foreign_key_column;
+  first = false;
+
+  // Add fields using column metadata
+  for (const auto& field : fields) {
+    // Skip ID and FK columns (ID auto-generated, FK already added)
+    if (field.column_name == id_column_ || field.column_name == rel.foreign_key_column) {
+      continue;
+    }
+
+    if (!first) {
+      sql += ", ";
+      values += ", ";
+    }
+    sql += field.column_name;
+    values += flx_string(":") + field.column_name;
+    first = false;
+  }
+
+  return sql + ")" + values + ")";
+}
+
+inline void db_repository::bind_and_execute_child_insert(db_query* query, const relation_metadata& rel,
+                                                           flx_model* item_model, const flx_variant& parent_id,
+                                                           const std::vector<field_metadata>& fields)
+{
+  // Bind foreign key first
+  query->bind(rel.foreign_key_column, parent_id);
+
+  // Bind field values
+  const auto& item_properties = item_model->get_properties();
+  for (const auto& field : fields) {
+    // Skip ID and FK columns
+    if (field.column_name == id_column_ || field.column_name == rel.foreign_key_column) {
+      continue;
+    }
+
+    // Use cpp_name to find property in model
+    auto prop_it = item_properties.find(field.cpp_name);
+    flx_variant value;
+    if (prop_it != item_properties.end()) {
+      value = prop_it->second->access();
+    }
+    query->bind(field.column_name, value);
+  }
+
+  // Execute insert
+  if (!query->execute()) {
+    throw db_query_error("Failed to execute child insert", "", query->get_last_error());
+  }
+}
+
+inline long long db_repository::retrieve_inserted_id()
+{
+  auto id_query = connection_->create_query();
+  id_query->prepare("SELECT lastval()");
+  if (id_query->execute() && id_query->next()) {
+    auto row = id_query->get_row();
+    if (row.find("lastval") != row.end()) {
+      return row["lastval"].int_value();
+    }
+  }
+  return -1;  // Failed to retrieve ID
+}
+
+inline void db_repository::update_child_foreign_key(flx_model* item_model, const relation_metadata& rel,
+                                                      const flx_variant& parent_id, const std::vector<field_metadata>& fields)
+{
+  // Set inserted ID in model
+  long long inserted_id = retrieve_inserted_id();
+  if (inserted_id != -1) {
+    (*item_model)[id_column_] = flx_variant(inserted_id);
+  }
+
+  // Set foreign key value in model
+  for (const auto& field : fields) {
+    if (field.column_name == rel.foreign_key_column) {
+      (*item_model)[field.cpp_name] = parent_id;
+      break;
+    }
+  }
+}
+
+// ============================================================================
+// Helper Methods for build_hierarchy_query (SRP Refactoring)
+// ============================================================================
+
+inline flx_string db_repository::build_vector_distance_expression(const db_search_criteria& criteria, const flx_string& root_table)
+{
+  if (!criteria.has_vector_search()) return "";
+
+  const auto& vec_search = criteria.get_vector_search();
+
+  // Build vector literal: [v1, v2, v3, ...]
+  flx_string vector_literal = "[";
+  for (size_t i = 0; i < vec_search.query_embedding.size(); ++i) {
+    if (i > 0) vector_literal += ", ";
+    vector_literal += flx_string(std::to_string(vec_search.query_embedding[i]).c_str());
+  }
+  vector_literal += "]";
+
+  // Return distance expression: embedding_field <-> '[...]'::vector AS distance
+  return root_table + "." + vec_search.embedding_field + " <-> '" + vector_literal + "'::vector AS distance";
+}
+
+inline flx_string db_repository::insert_joins_into_sql(const flx_string& sql, const flx_string& joins, const flx_string& root_table)
+{
+  flx_string from_marker = "FROM " + root_table;
+  size_t from_pos = sql.find(from_marker.c_str());
+
+  if (from_pos == flx_string::npos) return sql;  // FROM not found, return unchanged
+
+  size_t insert_pos = from_pos + from_marker.length();
+
+  // Find first clause after FROM (WHERE, ORDER BY, or LIMIT)
+  size_t where_pos = sql.find(" WHERE");
+  size_t order_pos = sql.find(" ORDER BY");
+  size_t limit_pos = sql.find(" LIMIT");
+
+  // Determine minimum valid position after insert_pos
+  size_t next_clause = flx_string::npos;
+  if (where_pos != flx_string::npos && where_pos > insert_pos) next_clause = where_pos;
+  if (order_pos != flx_string::npos && order_pos > insert_pos && (next_clause == flx_string::npos || order_pos < next_clause)) next_clause = order_pos;
+  if (limit_pos != flx_string::npos && limit_pos > insert_pos && (next_clause == flx_string::npos || limit_pos < next_clause)) next_clause = limit_pos;
+
+  // Insert JOINs at appropriate position
+  return sql.substr(0, insert_pos) + joins + sql.substr(insert_pos);
+}
+
+// ============================================================================
+// Helper Methods for scan_relations (SRP Refactoring)
+// ============================================================================
+
+inline db_repository::relation_metadata db_repository::scan_relation_from_model(flx_model* child_model, const flx_string& property_name, const flx_string& parent_table)
+{
+  relation_metadata rel;
+  rel.property_name = property_name;
+
+  if (child_model == nullptr) return rel;
+
+  // Scan child's properties for metadata
+  const auto& child_properties = child_model->get_properties();
+  for (const auto& [prop_name, prop] : child_properties) {
+    const flxv_map& meta = prop->get_meta();
+
+    // Find primary_key for table name
+    if (meta.find("primary_key") != meta.end()) {
+      rel.related_table = meta.at("primary_key").string_value();
+    }
+
+    // Find foreign_key pointing back to parent
+    if (meta.find("foreign_key") != meta.end()) {
+      flx_string fk_table = meta.at("foreign_key").string_value();
+      if (fk_table == parent_table && meta.find("column") != meta.end()) {
+        rel.foreign_key_column = meta.at("column").string_value();
+      }
+    }
+  }
+
+  return rel;
+}
+
+// ============================================================================
+// Helper Methods for search (SRP Refactoring)
+// ============================================================================
+
+inline void db_repository::validate_search_prerequisites(flx_list& results)
+{
+  results.clear();
+
+  if (!connection_ || !connection_->is_connected()) {
+    throw db_connection_error("Not connected to database");
+  }
+}
+
+inline void db_repository::execute_search_query(const db_search_criteria& criteria, flx_model& model, std::vector<flxv_map>& rows)
+{
+  db_query_builder builder;
+  builder.from(extract_table_name(model));
+  criteria.apply_to(builder);
+  flx_string sql = builder.build_select();
+
+  auto query = connection_->create_query();
+  if (!query) {
+    throw db_query_error("Failed to create query");
+  }
+
+  if (!query->prepare(sql)) {
+    throw db_prepare_error("Failed to prepare search query", sql, query->get_last_error());
+  }
+
+  const auto& params = builder.get_parameters();
+  for (const auto& param : params) {
+    query->bind(param.first, param.second);
+  }
+
+  if (!query->execute()) {
+    throw db_query_error("Failed to execute search", sql, query->get_last_error());
+  }
+
+  rows = query->get_all_rows();
+}
+
+inline void db_repository::process_search_results(const std::vector<flxv_map>& rows, flx_list& results)
+{
+  for (const auto& row : rows) {
+    flx_model model;
+    for (const auto& pair : row) {
+      model[pair.first] = pair.second;
+    }
+    model.read_row(row);
+    load_nested_objects(model);
+
+    results.add_element();
+    *results.back() = *model;
+    results.back().resync();
+  }
+}
+
+// ============================================================================
+// Helper Methods for load_nested_objects (SRP Refactoring)
+// ============================================================================
+
+inline void db_repository::load_child_relation(flx_model& model, const relation_metadata& rel, const flx_variant& parent_id)
+{
+  flx_string child_sql = "SELECT * FROM " + rel.related_table + " WHERE " + rel.foreign_key_column + " = :parent_id";
+
+  auto child_query = connection_->create_query();
+  if (!child_query->prepare(child_sql)) return;
+
+  child_query->bind("parent_id", parent_id);
+  if (!child_query->execute()) return;
+
+  auto child_rows = child_query->get_all_rows();
+
+  const auto& children = model.get_children();
+  const auto& lists = model.get_model_lists();
+  bool is_single_model = (children.find(rel.property_name) != children.end());
+
+  if (is_single_model && !child_rows.empty()) {
+    model[rel.property_name] = flx_variant(child_rows[0]);
+  } else {
+    flxv_vector children_vec;
+    for (const auto& child_row : child_rows) {
+      children_vec.push_back(flx_variant(child_row));
+    }
+    model[rel.property_name] = flx_variant(children_vec);
+  }
+}
+
+inline void db_repository::recursively_load_grandchildren(flx_model& model)
+{
+  const auto& children = model.get_children();
+  for (const auto& [child_name, child_ptr] : children) {
+    if (child_ptr != nullptr) {
+      load_nested_objects(*child_ptr);
+    }
+  }
+
+  const auto& lists = model.get_model_lists();
+  for (const auto& [list_name, list_ptr] : lists) {
+    if (list_ptr != nullptr) {
+      for (size_t i = 0; i < list_ptr->list_size(); ++i) {
+        flx_model* child_model = list_ptr->get_model_at(i);
+        if (child_model != nullptr) {
+          load_nested_objects(*child_model);
+        }
+      }
+    }
+  }
+}
+
+
+inline void db_repository::load_nested_objects(flx_model& model)
+{
+  auto relations = scan_relations(model);
+  if (relations.empty()) return;
+
+  flx_variant parent_id = model[id_column_];
+  if (parent_id.in_state() == flx_variant::none) return;  // No ID, nothing to load
+
+  for (const auto& rel : relations) {
+    load_child_relation(model, rel, parent_id);
+  }
+
+  model.resync();  // Sync typed child models to loaded data
+  recursively_load_grandchildren(model);
+}
+
+
+inline flx_string db_repository::build_join_sql(const flx_model& model, const std::vector<relation_metadata>& relations)
 {
   flx_string joins;
 
   for (const auto& rel : relations) {
     // LEFT JOIN related_table AS relationname ON table.id = relationname.foreign_key
     joins += " LEFT JOIN " + rel.related_table + " AS " + rel.property_name;
-    joins += " ON " + table_name_ + "." + id_column_ + " = ";
+    joins += " ON " + extract_table_name(model) + "." + id_column_ + " = ";
     joins += rel.property_name + "." + rel.foreign_key_column;
   }
 
   return joins;
 }
 
-template<typename T>
-void db_repository<T>::map_joined_results(const flxv_map& row, T& model, const std::vector<relation_metadata>& relations)
+
+inline void db_repository::map_joined_results(const flxv_map& row, flx_model& model, const std::vector<relation_metadata>& relations)
 {
   // Map parent fields
   for (const auto& pair : row) {
@@ -1272,8 +1312,8 @@ void db_repository<T>::map_joined_results(const flxv_map& row, T& model, const s
 
 // Hierarchical search helper implementations
 
-template<typename T>
-flx_string db_repository<T>::find_primary_key_column(flx_model& model)
+
+inline flx_string db_repository::find_primary_key_column(flx_model& model)
 {
   // Scan properties for primary_key metadata
   const auto& properties = model.get_properties();
@@ -1282,13 +1322,11 @@ flx_string db_repository<T>::find_primary_key_column(flx_model& model)
     flx_property_i* prop = prop_pair.second;
     const flxv_map& meta = prop->get_meta();
 
-    // Check if this property has primary_key metadata
+    // Check if this property has primary_key metadata (value = table name)
     if (meta.find("primary_key") != meta.end()) {
-      if (meta.at("primary_key").bool_value()) {
-        // Found primary key - return its column name
-        if (meta.find("column") != meta.end()) {
-          return meta.at("column").string_value();
-        }
+      // Found primary key - return its column name
+      if (meta.find("column") != meta.end()) {
+        return meta.at("column").string_value();
       }
     }
   }
@@ -1297,74 +1335,72 @@ flx_string db_repository<T>::find_primary_key_column(flx_model& model)
   return "id";
 }
 
-template<typename T>
-std::set<flx_string> db_repository<T>::collect_all_table_names(flx_model& model, const flx_string& root_table)
+
+inline std::set<flx_string> db_repository::collect_all_table_names(flx_model& model, const flx_string& root_table)
 {
   std::set<flx_string> tables;
   tables.insert(root_table);
 
-  // Get all properties to access metadata
-  const auto& properties = model.get_properties();
-
-  // Iterate over all child models
+  // Iterate over all child models (flxp_model - 1:1)
   const auto& children = model.get_children();
   for (const auto& child_pair : children) {
-    const flx_string& child_fieldname = child_pair.first;
     flx_model* child = child_pair.second;
+    if (child == nullptr) continue;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(child_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
-
-      // Get the table name from metadata
-      if (meta.find("table") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-
-        // Recursively collect tables from this child
-        auto child_tables = collect_all_table_names(*child, child_table);
-        tables.insert(child_tables.begin(), child_tables.end());
+    // Extract table name from child's primary_key metadata
+    flx_string child_table;
+    const auto& child_properties = child->get_properties();
+    for (const auto& [prop_name, prop] : child_properties) {
+      const flxv_map& meta = prop->get_meta();
+      if (meta.find("primary_key") != meta.end()) {
+        child_table = meta.at("primary_key").string_value();
+        break;
       }
+    }
+
+    if (!child_table.empty()) {
+      // Recursively collect tables from this child
+      auto child_tables = collect_all_table_names(*child, child_table);
+      tables.insert(child_tables.begin(), child_tables.end());
     }
   }
 
-  // Iterate over all model_lists
+  // Iterate over all model_lists (flxp_model_list - 1:N)
   const auto& model_lists = model.get_model_lists();
   for (const auto& list_pair : model_lists) {
-    const flx_string& list_fieldname = list_pair.first;
     flx_list* list = list_pair.second;
+    if (list == nullptr || list->list_size() == 0) continue;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(list_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Get first element to inspect structure
+    flx_model* first_elem = list->get_model_at(0);
+    if (first_elem == nullptr) continue;
 
-      // Get the table name from metadata
-      if (meta.find("table") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-
-        // Always add the table for the list
-        tables.insert(child_table);
-
-        // If the list has elements, recursively collect from first element
-        // (all elements have the same structure)
-        if (list->list_size() > 0) {
-          flx_model* first_elem = list->get_model_at(0);
-          if (first_elem) {
-            auto child_tables = collect_all_table_names(*first_elem, child_table);
-            // Merge child tables (excluding the child_table itself which is already added)
-            tables.insert(child_tables.begin(), child_tables.end());
-          }
-        }
+    // Extract table name from element's primary_key metadata
+    flx_string child_table;
+    const auto& elem_properties = first_elem->get_properties();
+    for (const auto& [prop_name, prop] : elem_properties) {
+      const flxv_map& meta = prop->get_meta();
+      if (meta.find("primary_key") != meta.end()) {
+        child_table = meta.at("primary_key").string_value();
+        break;
       }
+    }
+
+    if (!child_table.empty()) {
+      // Always add the table for the list
+      tables.insert(child_table);
+
+      // Recursively collect nested tables
+      auto child_tables = collect_all_table_names(*first_elem, child_table);
+      tables.insert(child_tables.begin(), child_tables.end());
     }
   }
 
   return tables;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_joins_recursive(flx_model& model, const flx_string& parent_table)
+
+inline flx_string db_repository::build_joins_recursive(flx_model& model, const flx_string& parent_table)
 {
   flx_string joins = "";
 
@@ -1436,8 +1472,8 @@ flx_string db_repository<T>::build_joins_recursive(flx_model& model, const flx_s
   return joins;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_id_selects_recursive(flx_model& model, const flx_string& table_name)
+
+inline flx_string db_repository::build_id_selects_recursive(flx_model& model, const flx_string& table_name)
 {
   flx_string selects = "";
 
@@ -1510,100 +1546,33 @@ flx_string db_repository<T>::build_id_selects_recursive(flx_model& model, const 
   return selects;
 }
 
-template<typename T>
-flx_string db_repository<T>::build_hierarchy_query(flx_model& model, const flx_string& root_table, const db_search_criteria& criteria, db_query_builder& builder)
+
+inline flx_string db_repository::build_hierarchy_query(flx_model& model, const flx_string& root_table, const db_search_criteria& criteria, db_query_builder& builder)
 {
   // Build SELECT clause with all IDs
   flx_string id_selects = build_id_selects_recursive(model, root_table);
 
-  // If semantic search is active, prepend distance expression to SELECT
-  if (criteria.has_vector_search()) {
-    const auto& vec_search = criteria.get_vector_search();
-
-    // Build distance expression: embedding_field <-> '[...]'::vector AS distance
-    flx_string vector_literal = "[";
-    for (size_t i = 0; i < vec_search.query_embedding.size(); ++i) {
-      if (i > 0) vector_literal += ", ";
-      vector_literal += flx_string(std::to_string(vec_search.query_embedding[i]).c_str());
-    }
-    vector_literal += "]";
-
-    flx_string distance_expr = root_table + "." + vec_search.embedding_field +
-                                " <-> '" + vector_literal + "'::vector AS distance";
-
-    // Prepend distance to SELECT (needed for ORDER BY)
+  // Prepend vector distance expression if semantic search is active
+  flx_string distance_expr = build_vector_distance_expression(criteria, root_table);
+  if (!distance_expr.empty()) {
     id_selects = distance_expr + ", " + id_selects;
   }
 
   // Build JOIN clauses
   flx_string joins = build_joins_recursive(model, root_table);
 
-  // Build WHERE/ORDER BY/LIMIT using query builder (builder now passed by reference)
+  // Configure query builder and apply criteria
   builder.select(id_selects);
   builder.from(root_table);
-
-  // Apply criteria (WHERE, ORDER BY, LIMIT)
   criteria.apply_to(builder);
 
-  // Debug: check if semantic search is active
-  if (criteria.has_vector_search()) {
-    std::cout << "[DEBUG] Semantic search active, distance field: "
-              << criteria.get_vector_search().embedding_field.c_str() << std::endl;
-  }
-
-  // Debug: print ORDER BY info before building
-  std::cout << "[DEBUG] Builder state before build_select()" << std::endl;
-
-  // Build the query
+  // Build SQL and insert JOINs at correct position
   flx_string sql = builder.build_select();
-
-  // Debug: print query BEFORE JOIN insertion
-  std::cout << "[SQL BEFORE JOIN] Last 400 chars: ..."
-            << (sql.length() > 400 ? sql.substr(sql.length() - 400, 400) : sql).c_str() << std::endl;
-
-  // Debug: show last 300 chars of SQL (should include ORDER BY and LIMIT)
-  if (sql.length() > 300) {
-    std::cout << "[SQL TAIL] ..." << sql.substr(sql.length() - 300, 300).c_str() << std::endl;
-  }
-
-  // Insert JOIN clauses after FROM clause
-  // Find position after "FROM <table>"
-  flx_string from_marker = "FROM " + root_table;
-  size_t from_pos = sql.find(from_marker.c_str());
-
-  if (from_pos != flx_string::npos) {
-    size_t insert_pos = from_pos + from_marker.length();
-
-    // Check if there's a WHERE clause to insert before
-    size_t where_pos = sql.find(" WHERE");
-    if (where_pos != flx_string::npos && where_pos > insert_pos) {
-      // Insert JOINs before WHERE
-      sql = sql.substr(0, insert_pos) + joins + sql.substr(insert_pos);
-    } else {
-      // No WHERE clause, check for ORDER BY
-      size_t order_pos = sql.find(" ORDER BY");
-      if (order_pos != flx_string::npos && order_pos > insert_pos) {
-        // Insert JOINs before ORDER BY
-        sql = sql.substr(0, insert_pos) + joins + sql.substr(insert_pos);
-      } else {
-        // No WHERE or ORDER BY, check for LIMIT
-        size_t limit_pos = sql.find(" LIMIT");
-        if (limit_pos != flx_string::npos && limit_pos > insert_pos) {
-          // Insert JOINs before LIMIT
-          sql = sql.substr(0, insert_pos) + joins + sql.substr(insert_pos);
-        } else {
-          // No WHERE, ORDER BY, or LIMIT - append at end
-          sql = sql.substr(0, insert_pos) + joins + sql.substr(insert_pos);
-        }
-      }
-    }
-  }
-
-  return sql;
+  return insert_joins_into_sql(sql, joins, root_table);
 }
 
-template<typename T>
-std::map<flx_string, std::set<long long>> db_repository<T>::parse_hierarchy_results(const std::vector<flxv_map>& rows, flx_model& model, const flx_string& root_table)
+
+inline std::map<flx_string, std::set<long long>> db_repository::parse_hierarchy_results(const std::vector<flxv_map>& rows, flx_model& model, const flx_string& root_table)
 {
   std::map<flx_string, std::set<long long>> id_sets;
 
@@ -1643,8 +1612,8 @@ std::map<flx_string, std::set<long long>> db_repository<T>::parse_hierarchy_resu
   return id_sets;
 }
 
-template<typename T>
-std::map<flx_string, std::map<long long, flxv_map>> db_repository<T>::batch_load_rows(const std::map<flx_string, std::set<long long>>& id_sets)
+
+inline std::map<flx_string, std::map<long long, flxv_map>> db_repository::batch_load_rows(const std::map<flx_string, std::set<long long>>& id_sets)
 {
   std::map<flx_string, std::map<long long, flxv_map>> all_rows;
 
@@ -1667,8 +1636,6 @@ std::map<flx_string, std::map<long long, flxv_map>> db_repository<T>::batch_load
     // Execute query
     auto query = connection_->create_query();
     if (!query->prepare(sql)) {
-      std::cerr << "[BATCH LOAD] Failed to prepare query for " << table.c_str() << ": "
-                << query->get_last_error().c_str() << std::endl;
       continue;
     }
 
@@ -1679,8 +1646,6 @@ std::map<flx_string, std::map<long long, flxv_map>> db_repository<T>::batch_load
     }
 
     if (!query->execute()) {
-      std::cerr << "[BATCH LOAD] Failed to execute query for " << table.c_str() << ": "
-                << query->get_last_error().c_str() << std::endl;
       continue;
     }
 
@@ -1699,8 +1664,8 @@ std::map<flx_string, std::map<long long, flxv_map>> db_repository<T>::batch_load
   return all_rows;
 }
 
-template<typename T>
-void db_repository<T>::construct_tree_recursive(flx_model& model, const flx_string& table_name, long long id, const std::map<flx_string, std::map<long long, flxv_map>>& all_rows)
+
+inline void db_repository::construct_tree_recursive(flx_model& model, const flx_string& table_name, long long id, const std::map<flx_string, std::map<long long, flxv_map>>& all_rows)
 {
   // Get the row data for this model
   auto table_it = all_rows.find(table_name);
@@ -1799,25 +1764,27 @@ void db_repository<T>::construct_tree_recursive(flx_model& model, const flx_stri
   model.resync();
 }
 
-template<typename T>
-bool db_repository<T>::search_hierarchical(const db_search_criteria& criteria, flx_model_list<T>& results)
+
+inline void db_repository::search_hierarchical(const db_search_criteria& criteria, flx_list& results)
 {
-  // Create a temporary model for introspection
-  T model;
+  // Get sample model from list factory
+  auto sample = results.factory();
+  if (sample.is_null()) {
+    throw db_query_error("Failed to create sample model from list factory");
+  }
+  flx_model& model = *sample;
 
   // Phase 1: Build and execute ID hierarchy query
   db_query_builder builder;
-  flx_string sql = build_hierarchy_query(model, table_name_, criteria, builder);
+  flx_string sql = build_hierarchy_query(model, extract_table_name(model), criteria, builder);
 
   auto query = connection_->create_query();
   if (!query) {
-    last_error_ = "Failed to create query object";
-    return false;
+    throw db_query_error("Failed to create query object");
   }
 
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare hierarchy query: ") + query->get_last_error();
-    return false;
+    throw db_prepare_error("Failed to prepare hierarchy query", sql, query->get_last_error());
   }
 
   // Bind parameters from query builder
@@ -1827,8 +1794,7 @@ bool db_repository<T>::search_hierarchical(const db_search_criteria& criteria, f
   }
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to execute hierarchy query: ") + query->get_last_error();
-    return false;
+    throw db_query_error("Failed to execute hierarchy query", sql, query->get_last_error());
   }
 
   // Collect all result rows
@@ -1838,7 +1804,7 @@ bool db_repository<T>::search_hierarchical(const db_search_criteria& criteria, f
   }
 
   if (rows.empty()) {
-    return true;  // No results - success but empty
+    return;  // No results - success but empty
   }
 
   // Extract distance values if semantic search was used
@@ -1859,7 +1825,7 @@ bool db_repository<T>::search_hierarchical(const db_search_criteria& criteria, f
         try {
           // Get the root table ID
           std::cout << "[DISTANCE DEBUG] Creating qualified_id..." << std::endl;
-          flx_string qualified_id = flx_string(table_name_.c_str()) + flx_string(".id");
+          flx_string qualified_id = flx_string(extract_table_name(model).c_str()) + flx_string(".id");
           std::cout << "[DISTANCE DEBUG] Looking for qualified_id: " << qualified_id.c_str() << std::endl;
 
           if (row.find(qualified_id) != row.end()) {
@@ -1887,46 +1853,48 @@ bool db_repository<T>::search_hierarchical(const db_search_criteria& criteria, f
   }
 
   // Phase 2: Parse results to get ID sets per table
-  auto id_sets = parse_hierarchy_results(rows, model, table_name_);
+  auto id_sets = parse_hierarchy_results(rows, model, extract_table_name(model));
 
   // Phase 3: Batch load full rows for each table
   auto all_rows = batch_load_rows(id_sets);
 
   // Phase 4: Tree construction - for each root ID
-  auto root_ids = id_sets[table_name_];
+  auto root_ids = id_sets[extract_table_name(model)];
   for (long long root_id : root_ids) {
-    T root_model;
-    construct_tree_recursive(root_model, table_name_, root_id, all_rows);
+    flx_model root_model;
+    construct_tree_recursive(root_model, extract_table_name(model), root_id, all_rows);
 
     // Attach distance value if available
     if (distance_map.find(root_id) != distance_map.end()) {
       (*root_model)["distance"] = distance_map[root_id];
     }
 
-    results.push_back(root_model);
+    // Add new element to results and copy data
+    results.add_element();
+    *results.back() = *root_model;
+    results.back().resync();
   }
-
-  return true;
 }
 
 // Migration implementations
-template<typename T>
-bool db_repository<T>::migrate_table()
+
+inline void db_repository::migrate_table(flx_model& model)
 {
-  if (!table_exists()) {
-    std::cerr << "[Migration] Table " << table_name_.c_str() << " does not exist, creating..." << std::endl;
-    return create_table();
+  if (!table_exists(model)) {
+    // Auto-configure schema from metadata before creating
+    auto_configure(model);
+    create_table(model);
+    return;
   }
 
   // Get existing columns from database
-  auto existing_cols = get_existing_columns();
+  auto existing_cols = get_existing_columns(model);
   if (existing_cols.empty()) {
-    last_error_ = "Failed to query existing columns";
-    return false;
+    throw db_query_error("Failed to query existing columns");
   }
 
   // Get expected columns from model metadata
-  auto fields = scan_fields();
+  auto fields = scan_fields(model);
 
   // Find missing columns
   std::vector<field_metadata> missing_cols;
@@ -1938,39 +1906,27 @@ bool db_repository<T>::migrate_table()
   }
 
   if (missing_cols.empty()) {
-    std::cerr << "[Migration] Table " << table_name_.c_str() << " is up to date" << std::endl;
-    return true;
+    return;
   }
 
   // Add missing columns
-  std::cerr << "[Migration] Adding " << missing_cols.size() << " missing columns to " << table_name_.c_str() << std::endl;
-
   for (const auto& field : missing_cols) {
     flx_string sql_type = get_sql_type_from_state(field.type);
-    flx_string alter_sql = "ALTER TABLE " + table_name_ + " ADD COLUMN " + field.column_name + " " + sql_type;
+    flx_string alter_sql = "ALTER TABLE " + extract_table_name(model) + " ADD COLUMN " + field.column_name + " " + sql_type;
 
     auto query = connection_->create_query();
     if (!query->prepare(alter_sql)) {
-      last_error_ = flx_string("Failed to prepare ALTER TABLE: ") + query->get_last_error();
-      std::cerr << "[Migration] ERROR: " << last_error_.c_str() << std::endl;
-      return false;
+      throw db_prepare_error("Failed to prepare ALTER TABLE", alter_sql, query->get_last_error());
     }
 
     if (!query->execute()) {
-      last_error_ = flx_string("Failed to add column ") + field.column_name + ": " + query->get_last_error();
-      std::cerr << "[Migration] ERROR: " << last_error_.c_str() << std::endl;
-      return false;
+      throw db_query_error("Failed to add column " + field.column_name, alter_sql, query->get_last_error());
     }
-
-    std::cerr << "[Migration] Added column: " << field.column_name.c_str() << " (" << sql_type.c_str() << ")" << std::endl;
   }
-
-  std::cerr << "[Migration] Table " << table_name_.c_str() << " successfully migrated" << std::endl;
-  return true;
 }
 
-template<typename T>
-std::set<flx_string> db_repository<T>::get_existing_columns()
+
+inline std::set<flx_string> db_repository::get_existing_columns(flx_model& model)
 {
   std::set<flx_string> columns;
 
@@ -1979,15 +1935,13 @@ std::set<flx_string> db_repository<T>::get_existing_columns()
 
   auto query = connection_->create_query();
   if (!query->prepare(sql)) {
-    last_error_ = flx_string("Failed to prepare schema query: ") + query->get_last_error();
-    return columns;
+    throw db_prepare_error("Failed to prepare schema query", sql, query->get_last_error());
   }
 
-  query->bind("table_name", flx_variant(table_name_));
+  query->bind("table_name", flx_variant(extract_table_name(model)));
 
   if (!query->execute()) {
-    last_error_ = flx_string("Failed to query schema: ") + query->get_last_error();
-    return columns;
+    throw db_query_error("Failed to query schema", sql, query->get_last_error());
   }
 
   while (query->next()) {
@@ -1998,6 +1952,149 @@ std::set<flx_string> db_repository<T>::get_existing_columns()
   }
 
   return columns;
+}
+
+
+inline void db_repository::ensure_child_table_from_model(flx_model* child_model)
+{
+  if (child_model == nullptr) return;
+
+  // Extract table name and fields from child model
+  const auto& child_properties = child_model->get_properties();
+  flx_string child_table_name;
+  flx_string child_id_column = "id";
+  std::vector<field_metadata> child_fields;
+
+  // Scan for primary key and table name
+  for (const auto& [prop_name, prop] : child_properties) {
+    const flxv_map& meta = prop->get_meta();
+
+    if (meta.find("primary_key") != meta.end()) {
+      child_table_name = meta.at("primary_key").string_value();
+    }
+
+    // Collect field metadata
+    if (meta.find("column") != meta.end()) {
+      field_metadata field;
+      field.cpp_name = prop_name;
+      field.column_name = meta.at("column").string_value();
+      field.is_primary_key = (meta.find("primary_key") != meta.end());
+      field.is_foreign_key = (meta.find("foreign_key") != meta.end());
+      if (field.is_foreign_key) {
+        field.foreign_table = meta.at("foreign_key").string_value();
+      }
+      field.type = prop->get_variant_type();
+      child_fields.push_back(field);
+    }
+  }
+
+  if (child_table_name.empty()) {
+    // std::cerr << "[ensure_child_table] No table name found in child model" << std::endl;
+    return;
+  }
+
+  // Check if table exists (use same method as table_exists())
+  flx_string check_sql = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table_name)";
+  auto check_query = connection_->create_query();
+  if (!check_query->prepare(check_sql)) {
+    throw db_prepare_error("Failed to prepare table check", check_sql, check_query->get_last_error());
+  }
+
+  check_query->bind("table_name", flx_variant(child_table_name));
+  if (check_query->execute() && check_query->next()) {
+    auto row = check_query->get_row();
+    if (row["exists"].bool_value()) {
+      // Table exists - don't recursively process to avoid infinite loops
+      // (child tables will be handled by their own ensure_structures() calls)
+      return;
+    }
+  }
+
+  // Table doesn't exist - create it
+  // std::cerr << "[ensure_child_table] Creating table " << child_table_name.c_str() << std::endl;
+
+  flx_string create_sql = "CREATE TABLE IF NOT EXISTS " + child_table_name + " (";
+  bool first = true;
+
+  for (const auto& field : child_fields) {
+    if (!first) create_sql += ", ";
+    first = false;
+
+    create_sql += field.column_name + " ";
+    create_sql += get_sql_type_from_state(field.type);
+
+    if (field.is_primary_key) {
+      create_sql += " PRIMARY KEY GENERATED ALWAYS AS IDENTITY";
+    }
+  }
+
+  create_sql += ")";
+
+  auto create_query = connection_->create_query();
+  if (!create_query->prepare(create_sql)) {
+    throw db_prepare_error("Failed to prepare CREATE TABLE", create_sql, create_query->get_last_error());
+  }
+
+  if (!create_query->execute()) {
+    throw db_query_error("Failed to execute CREATE TABLE", create_sql, create_query->get_last_error());
+  }
+
+  // std::cerr << "[ensure_child_table] Created table " << child_table_name.c_str() << std::endl;
+
+  // Add foreign key constraints with CASCADE DELETE
+  for (const auto& field : child_fields) {
+    if (field.is_foreign_key && !field.foreign_table.empty()) {
+      flx_string constraint_name = child_table_name + "_" + field.column_name + "_fkey";
+      flx_string fk_sql = "ALTER TABLE " + child_table_name +
+                          " ADD CONSTRAINT " + constraint_name +
+                          " FOREIGN KEY (" + field.column_name + ")" +
+                          " REFERENCES " + field.foreign_table + "(id)" +
+                          " ON DELETE CASCADE";
+
+      auto fk_query = connection_->create_query();
+      if (!fk_query->prepare(fk_sql)) {
+        throw db_prepare_error("Failed to prepare FK constraint", fk_sql, fk_query->get_last_error());
+      }
+
+      if (!fk_query->execute()) {
+        // Ignore if constraint already exists
+        // std::cerr << "[ensure_child_table] FK constraint might exist: " << fk_query->get_last_error().c_str() << std::endl;
+      }
+    }
+  }
+
+  // Don't recursively handle children to avoid infinite loops
+  // Each model type will have its own ensure_structures() call
+}
+
+
+inline void db_repository::ensure_structures(flx_model& model)
+{
+  // Migrate own table first (creates if not exists, adds columns if needed)
+  migrate_table(model);
+
+  // Get all child tables from nested models and lists
+  const auto& children = model.get_children();
+  const auto& model_lists = model.get_model_lists();
+
+  // Process nested models (flxp_model)
+  for (const auto& [child_name, child_ptr] : children) {
+    if (child_ptr == nullptr) continue;
+    ensure_child_table_from_model(child_ptr);
+  }
+
+  // Process model_lists (flxp_model_list)
+  for (const auto& [list_name, list_ptr] : model_lists) {
+    if (list_ptr == nullptr) continue;
+
+    // Use factory() to get a sample element without data
+    auto sample_elem = list_ptr->factory();
+    if (sample_elem.is_null()) {
+      continue;
+    }
+
+    ensure_child_table_from_model(&(*sample_elem));
+  }
 }
 
 #endif // DB_REPOSITORY_H
