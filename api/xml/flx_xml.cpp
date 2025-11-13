@@ -1,9 +1,21 @@
 #include "flx_xml.h"
+
+// Only compile XML functionality if FLX_ENABLE_XML is defined
+#ifdef FLX_ENABLE_XML
+
 #include <pugixml.hpp>
 #include <iostream>
 #include <sstream>
 
 namespace {
+
+  // Helper: Strip namespace prefix from element/attribute name
+  // "ns:element" → "element", "element" → "element"
+  flx_string strip_namespace(const char* name) {
+    flx_string full_name(name);
+    auto parts = full_name.split(":");
+    return parts.back();  // Return last part (after last colon, or whole name if no colon)
+  }
 
   // Konvertiert einen pugixml Node in ein flx_variant
   flx_variant pugi_to_flx(const pugi::xml_node& node) {
@@ -12,80 +24,34 @@ namespace {
       return flx_variant();
     }
 
-    // Prüfe ob Node Element-Children hat
-    bool has_element_children = false;
-    for (pugi::xml_node child = node.first_child(); child; child = child.next_sibling()) {
-      if (child.type() == pugi::node_element) {
-        has_element_children = true;
-        break;
-      }
-    }
-
-    // Wenn der Node nur Text enthält (keine Element-Children und keine Attribute)
-    if (!has_element_children && !node.first_attribute()) {
-      flx_string text = node.text().as_string();
-      if (text.empty()) {
-        return flx_variant();
-      }
-
-      // Versuche Typ-Erkennung
-      if (text == "true" || text == "false") {
-        return flx_variant(text == "true");
-      }
-
-      // Check for date/time patterns before numeric conversion
-      // ISO 8601 dates: "2025-01-17", "2025-01-17+01:00", "2025-01-17T14:30:00"
-      // Times: "11:00:00", "11:00:00+01:00"
-      if (text.contains("-") || text.contains(":")) {
-        // Keep as string - could be date/time
-        return flx_variant(text);
-      }
-
-      // Erst auf Double prüfen (enthält "."), dann auf Integer
-      if (text.contains(".") && text.is_double()) {
-        return flx_variant(text.to_double(0.0));
-      }
-      if (text.is_integer()) {
-        return flx_variant(static_cast<long long>(text.to_int(0)));
-      }
-      return flx_variant(text);
-    }
-
-    // Node mit Kindern oder Attributen → Map
+    // ALWAYS create a Map for consistency (even for text-only nodes)
+    // This ensures elements with/without attributes have the same structure
     flxv_map element_map;
 
-    // Attribute mit "@" Prefix speichern
+    // Attribute mit "@" Prefix speichern (Namespace-unabhängig)
+    // ALL attribute values are stored as strings - type conversion deferred to model properties
     for (pugi::xml_attribute attr = node.first_attribute(); attr; attr = attr.next_attribute()) {
-      flx_string key = flx_string("@") + attr.name();
+      flx_string key = flx_string("@") + strip_namespace(attr.name());
       flx_string value = attr.value();
-
-      // Typ-Erkennung für Attributwerte
-      if (value == "true" || value == "false") {
-        element_map[key] = flx_variant(value == "true");
-      } else if (value.is_integer()) {
-        element_map[key] = flx_variant(static_cast<long long>(value.to_int(0)));
-      } else if (value.is_double()) {
-        element_map[key] = flx_variant(value.to_double(0.0));
-      } else {
-        element_map[key] = flx_variant(value);
-      }
+      element_map[key] = flx_variant(value);
     }
 
-    // Text-Content speichern
+    // Text-Content speichern als String
+    // ALL text content is stored as strings - type conversion deferred to model properties
     flx_string text_content = node.text().as_string();
     text_content = text_content.trim();  // Trim whitespace from text content
     if (!text_content.empty()) {
       element_map[flx_string("#text")] = flx_variant(text_content);
     }
 
-    // Child-Elemente verarbeiten
+    // Child-Elemente verarbeiten (Namespace-unabhängig)
     for (pugi::xml_node child = node.first_child(); child; child = child.next_sibling()) {
       // Nur Element-Nodes verarbeiten, keine Text-Nodes
       if (child.type() != pugi::node_element) {
         continue;
       }
 
-      flx_string child_name = child.name();
+      flx_string child_name = strip_namespace(child.name());
       flx_variant child_value = pugi_to_flx(child);
 
       // Wenn bereits ein Element mit diesem Namen existiert, zu einem Array konvertieren
@@ -217,7 +183,7 @@ bool flx_xml::parse(const flx_string& xml_string) {
       return false;
     }
 
-    // Root-Element verarbeiten
+    // Root-Element verarbeiten (Namespace-unabhängig)
     pugi::xml_node root = doc.first_child();
     if (!root) {
       std::cerr << "Error: No root element found in XML." << std::endl;
@@ -225,7 +191,7 @@ bool flx_xml::parse(const flx_string& xml_string) {
     }
 
     // Root-Element in die Map konvertieren
-    flx_string root_name = root.name();
+    flx_string root_name = strip_namespace(root.name());
     (*data_map)[root_name] = pugi_to_flx(root);
 
     return true;
@@ -362,3 +328,5 @@ flx_string flx_xml::remove_first_placeholder(const flx_string& path) {
 
   return path.substr(0, pos) + path.substr(pos + 2);
 }
+
+#endif // FLX_ENABLE_XML

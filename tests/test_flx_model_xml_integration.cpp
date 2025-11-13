@@ -1112,3 +1112,89 @@ SCENARIO("flx_model nested attribute paths with missing nodes", "[xml_model_inte
         }
     }
 }
+
+// ============================================================================
+// SCENARIO 17: Namespace Handling in Models
+// ============================================================================
+
+SCENARIO("flx_model with namespaced XML", "[xml_model_integration]") {
+    class NamespacedPerson : public flx_model {
+    public:
+        flxp_string(name, {{"xml_path", "fullname"}});
+        flxp_int(age, {{"xml_path", "age"}});
+        flxp_string(email, {{"xml_path", "@email"}});
+    };
+
+    class NamespacedTeam : public flx_model {
+    public:
+        flxp_string(name, {{"xml_path", "teamname"}});
+        flxp_model_list(members, NamespacedPerson, {{"xml_path", "member[]"}});
+    };
+
+    GIVEN("XML with namespaces on all elements") {
+        flx_string xml_str = R"(
+            <ns:team xmlns:ns="http://company.com/ns">
+                <ns:teamname>Dev Team</ns:teamname>
+                <ns:member ns:email="alice@test.com">
+                    <ns:fullname>Alice Smith</ns:fullname>
+                    <ns:age>30</ns:age>
+                </ns:member>
+                <ns:member ns:email="bob@test.com">
+                    <ns:fullname>Bob Jones</ns:fullname>
+                    <ns:age>28</ns:age>
+                </ns:member>
+            </ns:team>
+        )";
+
+        WHEN("Reading model from namespaced XML") {
+            flxv_map data;
+            flx_xml xml(&data);
+            REQUIRE(xml.parse(xml_str) == true);
+
+            NamespacedTeam team;
+            team.read_xml(xml, "team");
+
+            THEN("Model should read correctly without namespace prefixes in paths") {
+                REQUIRE(team.name.value() == "Dev Team");
+                REQUIRE(team.members.size() == 2);
+
+                REQUIRE(team.members[0].name.value() == "Alice Smith");
+                REQUIRE(team.members[0].age.value() == 30);
+                REQUIRE(team.members[0].email.value() == "alice@test.com");
+
+                REQUIRE(team.members[1].name.value() == "Bob Jones");
+                REQUIRE(team.members[1].age.value() == 28);
+                REQUIRE(team.members[1].email.value() == "bob@test.com");
+            }
+        }
+    }
+
+    GIVEN("XML with mixed namespaces") {
+        flx_string xml_str = R"(
+            <data:team xmlns:data="http://data.com" xmlns:meta="http://meta.com">
+                <data:teamname>Mixed NS Team</data:teamname>
+                <data:member meta:email="test@example.com">
+                    <data:fullname>Test User</data:fullname>
+                    <data:age>35</data:age>
+                </data:member>
+            </data:team>
+        )";
+
+        WHEN("Reading model with mixed namespace prefixes") {
+            flxv_map data;
+            flx_xml xml(&data);
+            REQUIRE(xml.parse(xml_str) == true);
+
+            NamespacedTeam team;
+            team.read_xml(xml, "team");
+
+            THEN("All namespaces should be transparently stripped") {
+                REQUIRE(team.name.value() == "Mixed NS Team");
+                REQUIRE(team.members.size() == 1);
+                REQUIRE(team.members[0].name.value() == "Test User");
+                REQUIRE(team.members[0].age.value() == 35);
+                REQUIRE(team.members[0].email.value() == "test@example.com");
+            }
+        }
+    }
+}

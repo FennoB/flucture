@@ -1,6 +1,10 @@
 #ifndef FLX_XML_H
 #define FLX_XML_H
 
+// XML support requires pugixml library
+// Define FLX_ENABLE_XML to enable this feature
+#ifdef FLX_ENABLE_XML
+
 #include "../../utils/flx_variant.h"
 
 class flx_xml {
@@ -62,4 +66,5 @@ private:
   flxv_map* data_map;
 };
 
+#endif // FLX_ENABLE_XML
 #endif // FLX_XML_H

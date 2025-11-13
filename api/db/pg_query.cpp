@@ -283,3 +283,8 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
 
   return row_map;
 }
+
+flx_string pg_query::get_sql() const
+{
+  return sql_;
+}

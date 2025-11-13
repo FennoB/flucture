@@ -45,8 +45,19 @@ set(FLUCTURE_CORE_SOURCES
   aiprocesses/chat/flx_chat_snippet_source.cpp
   aiprocesses/snippets/flx_snippet.cpp
   aiprocesses/snippets/flx_snippet_source.cpp
-  api/xml/flx_xml.cpp
+  documents/qr/flx_qr_style.cpp
+  documents/qr/flx_qr_generator.cpp
+  documents/qr/qrcodegen.cpp
 )
+
+# Add XML support if pugixml is available
+if(PUGIXML_FOUND)
+  message(STATUS "pugixml found - enabling XML support")
+  list(APPEND FLUCTURE_CORE_SOURCES api/xml/flx_xml.cpp)
+  list(APPEND FLUCTURE_CORE_HEADERS api/xml/flx_xml.h)
+else()
+  message(STATUS "pugixml not found - XML support disabled")
+endif()
 
 set(FLUCTURE_CORE_HEADERS
   utils/flx_string.h
@@ -89,7 +100,9 @@ set(FLUCTURE_CORE_HEADERS
   aiprocesses/chat/flx_chat_snippet_source.h
   aiprocesses/snippets/flx_snippet.h
   aiprocesses/snippets/flx_snippet_source.h
-  api/xml/flx_xml.h
+  documents/qr/flx_qr_style.h
+  documents/qr/flx_qr_generator.h
+  documents/qr/qrcodegen.hpp
 )
 
 # --- PoDoFo Setup ---
@@ -111,11 +124,16 @@ find_package(OpenSSL REQUIRED) #
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PQXX REQUIRED libpqxx)
 
-# pugixml (XML parser library)
-pkg_check_modules(PUGIXML REQUIRED pugixml)
+# pugixml (XML parser library) - OPTIONAL
+pkg_check_modules(PUGIXML pugixml)
 
 # --- flucture_core Library ---
 add_library(flucture_core ${FLUCTURE_CORE_SOURCES} ${FLUCTURE_CORE_HEADERS})
+
+# Enable XML support if pugixml is available
+if(PUGIXML_FOUND)
+  target_compile_definitions(flucture_core PUBLIC FLX_ENABLE_XML)
+endif()
 
 # Include paths for the flucture_core library
 target_include_directories(flucture_core PUBLIC
@@ -129,8 +147,12 @@ target_include_directories(flucture_core PUBLIC
   ${CURL_INCLUDE_DIRS} #
   ${OPENSSL_INCLUDE_DIR} #
   ${PQXX_INCLUDE_DIRS} #
-  ${PUGIXML_INCLUDE_DIRS} #
 )
+
+# Add pugixml include dirs if available
+if(PUGIXML_FOUND)
+  target_include_directories(flucture_core PUBLIC ${PUGIXML_INCLUDE_DIRS})
+endif()
 
 # Library paths for libmicrohttpd (an Imported Target would be more modern)
 target_link_directories(flucture_core PUBLIC
@@ -147,8 +169,12 @@ target_link_libraries(flucture_core PUBLIC
   CURL::libcurl  #
   OpenSSL::SSL   #
   ${PQXX_LIBRARIES} #
-  ${PUGIXML_LIBRARIES} #
 )
+
+# Link pugixml if available
+if(PUGIXML_FOUND)
+  target_link_libraries(flucture_core PUBLIC ${PUGIXML_LIBRARIES})
+endif()
 
 # --- flucture executable ---
 add_executable(flucture ${APP_MAIN_SOURCE})
@@ -157,6 +183,15 @@ target_link_libraries(flucture PRIVATE flucture_core)
 # --- PDF to Layout API executable (for production use) ---
 add_executable(pdf_to_layout pdf_to_layout_api.cpp)
 target_link_libraries(pdf_to_layout PRIVATE flucture_core)
+
+# --- QR Code Generator Tool ---
+add_executable(qr_tool qr_tool.cpp)
+target_link_libraries(qr_tool PRIVATE flucture_core)
+
+# --- Simple Vergabefix QR Generator ---
+add_executable(qr_vergabefix qr_vergabefix.cpp documents/qr/qrcodegen.cpp)
+target_include_directories(qr_vergabefix PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(qr_vergabefix PRIVATE ${OpenCV_LIBS})
 
 
 # --- Installation (remains for the executable) ---
@@ -179,8 +214,8 @@ if(BUILD_FLUCTURE_TESTS)
     )
     FetchContent_MakeAvailable(Catch2)
 
-    # Auto-discover all test files with pattern test_*.cpp
-    file(GLOB TEST_SOURCES "tests/test_*.cpp")
+    # Auto-discover all test files with pattern test_*.cpp (including subdirectories)
+    file(GLOB_RECURSE TEST_SOURCES "tests/test_*.cpp")
     
     # Add main test runner (contains CATCH_CONFIG_MAIN)
     add_executable(flucture_tests

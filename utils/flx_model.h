@@ -51,6 +51,9 @@ public:
   // Parent access (for move constructors)
   flx_model* get_parent() const { return parent; }
 
+  // Update parent pointer after move/copy
+  virtual void update_parent(flx_model* new_parent) { parent = new_parent; }
+
   // Metadata access
   const flxv_map& get_meta() const { return metadata; }
   flxv_map& get_meta() { return metadata; }
@@ -81,6 +84,35 @@ public:
   {
     flx_variant v = type{};
     variant_type = v.in_state();
+  }
+
+  // Copy constructor - needed for Model copy
+  flx_property(const flx_property& other)
+    : flx_property_i(other.parent, other.name, other.metadata)
+    , variant_type(other.variant_type)
+  {
+  }
+
+  // Move constructor - needed for from_vector() return
+  flx_property(flx_property&& other) noexcept
+    : flx_property_i(other.parent, other.name, other.metadata)
+    , variant_type(other.variant_type)
+  {
+  }
+
+  // Copy assignment - needed for Model assignment
+  flx_property& operator=(const flx_property& other)
+  {
+    // Don't copy parent/name/metadata - those are structural
+    variant_type = other.variant_type;
+    return *this;
+  }
+
+  // Move assignment
+  flx_property& operator=(flx_property&& other) noexcept
+  {
+    variant_type = other.variant_type;
+    return *this;
   }
 
   // Return the expected variant type
@@ -176,6 +208,10 @@ public:
   virtual size_t list_size() = 0;
   virtual flx_model* get_model_at(size_t index) = 0;  // Returns pointer to model at index
   virtual void resync() = 0;  // Must be implemented by derived classes
+  virtual flx_lazy_ptr<flx_model> factory() = 0;  // Create empty model for metadata inspection
+  virtual void clear() = 0;  // Clear all elements
+  virtual void add_element() = 0;  // Add new empty element
+  virtual flx_model& back() = 0;  // Access last element
 };
 
 // Abstract base class for models - enforces resync implementation
@@ -248,22 +284,33 @@ public:
   {
     **this = *other;
   }
-  // const copy constructor
-  flx_model(const flx_model &other) : flx_lazy_ptr<flxv_map>()
+  // const copy constructor - Properties copied, need parent pointer update
+  flx_model(const flx_model &other)
+    : flx_lazy_ptr<flxv_map>()
+    , props()  // Properties will be copied via default, then we update parents
+    , children()
+    , model_lists()
+    , parent_property(nullptr)
   {
+    // Copy underlying data map
     try {
-      // Try to copy the actual data if available
       **this = *other;
     } catch (...) {
-      // Ignore exceptions during const copy - create empty model
-      // Base class constructor already initialized to nullptr
+    }
+
+    // CRITICAL: Properties have been copied and their parent pointers point to OTHER
+    // Update all property parent pointers to THIS
+    for (auto& prop_pair : props) {
+      if (prop_pair.second) {
+        prop_pair.second->update_parent(this);
+      }
     }
   }
 
-  // Move constructor - updates parent registration
+  // Move constructor - Properties moved, need parent pointer update
   flx_model(flx_model&& other) noexcept
     : flx_lazy_ptr<flxv_map>(other)
-    , props()  // Empty - property members will register themselves
+    , props()  // Properties will be moved via default, then we update parents
     , children(std::move(other.children))
     , model_lists(std::move(other.model_lists))
     , parent_property(other.parent_property)
@@ -273,7 +320,13 @@ public:
       parent_property->get_parent()->update_child_registration(parent_property->prop_name(), this);
     }
 
-    // Note: Properties are structural members, not data - they don't move
+    // CRITICAL: Properties have been moved and their parent pointers point to OLD address
+    // Update all property parent pointers to THIS
+    for (auto& prop_pair : props) {
+      if (prop_pair.second) {
+        prop_pair.second->update_parent(this);
+      }
+    }
 
     other.parent_property = nullptr;
   }
@@ -336,18 +389,45 @@ public:
   {
   }
 
-  // Copy constructor (needed because we have move constructor)
+  // Copy constructor - needed for from_vector() return
   flx_model_list(const flx_model_list& other)
     : flx_lazy_ptr<flxv_vector>()
     , parent_property(nullptr)
   {
-    // Copy the underlying vector
     try {
       **this = *other;
     } catch (...) {
-      // Ignore exceptions during const copy
     }
-    // Note: Don't copy parent_property - new list is independent
+  }
+
+  // Move constructor - updates parent registration
+  flx_model_list(flx_model_list&& other) noexcept
+    : flx_lazy_ptr<flxv_vector>(other)
+    , cache(std::move(other.cache))
+    , parent_property(other.parent_property)
+  {
+    if (parent_property && parent_property->get_parent()) {
+      parent_property->get_parent()->update_model_list_registration(parent_property->prop_name(), this);
+    }
+    other.parent_property = nullptr;
+  }
+
+  // Move assignment
+  flx_model_list& operator=(flx_model_list&& other) noexcept
+  {
+    if (this != &other) {
+      if (parent_property && parent_property->get_parent()) {
+        parent_property->get_parent()->remove_model_list_registration(parent_property->prop_name());
+      }
+      flx_lazy_ptr<flxv_vector>::operator=(other);
+      cache = std::move(other.cache);
+      parent_property = other.parent_property;
+      if (parent_property && parent_property->get_parent()) {
+        parent_property->get_parent()->update_model_list_registration(parent_property->prop_name(), this);
+      }
+      other.parent_property = nullptr;
+    }
+    return *this;
   }
 
   void set_parent(flx_property<flxv_vector>* parent_prop)
@@ -372,7 +452,7 @@ public:
   }
 
   // Add an empty element to the list
-  void add_element()
+  void add_element() override
   {
     flxv_map empty_map;
     (**this).push_back(empty_map);
@@ -392,7 +472,7 @@ public:
     cache[this->size() - 1].set(&(**this)[this->size() - 1].to_map());
   }
 
-  model& back()
+  model& back() override
   {
     return at(this->size() - 1);
   }
@@ -458,6 +538,15 @@ public:
     }
   }
 
+  // Factory implementation (implements flx_list)
+  virtual flx_lazy_ptr<flx_model> factory() override
+  {
+    // Create managed model (allocated on heap, owned by lazy_ptr)
+    flx_lazy_ptr<flx_model> ptr;
+    ptr.set(new model(), true);  // managed=true
+    return ptr;
+  }
+
   // Pull data from DB row - adds new element and reads its data
   void read_row(const flxv_map& row)
   {
@@ -471,7 +560,7 @@ public:
   }
 
   // Clear the list
-  void clear()
+  void clear() override
   {
     (**this).clear();
     cache.clear();
@@ -498,43 +587,6 @@ public:
         (**this).clear();
       }
       cache.clear();
-    }
-    return *this;
-  }
-
-  // Move constructor - updates parent registration
-  flx_model_list(flx_model_list&& other) noexcept
-    : flx_lazy_ptr<flxv_vector>(other)
-    , cache(std::move(other.cache))
-    , parent_property(other.parent_property)
-  {
-    // Update parent's model_lists map to point to NEW location
-    if (parent_property && parent_property->get_parent()) {
-      parent_property->get_parent()->update_model_list_registration(parent_property->prop_name(), this);
-    }
-    other.parent_property = nullptr;
-  }
-
-  // Move assignment - deregisters old, registers new
-  flx_model_list& operator=(flx_model_list&& other) noexcept
-  {
-    if (this != &other) {
-      // Deregister from OLD parent
-      if (parent_property && parent_property->get_parent()) {
-        parent_property->get_parent()->remove_model_list_registration(parent_property->prop_name());
-      }
-
-      // Move all members
-      flx_lazy_ptr<flxv_vector>::operator=(other);
-      cache = std::move(other.cache);
-      parent_property = other.parent_property;
-
-      // Register at NEW parent
-      if (parent_property && parent_property->get_parent()) {
-        parent_property->get_parent()->update_model_list_registration(parent_property->prop_name(), this);
-      }
-
-      other.parent_property = nullptr;
     }
     return *this;
   }

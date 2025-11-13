@@ -21,6 +21,7 @@ public:
 
   virtual int rows_affected() const = 0;
   virtual flx_string get_last_error() const = 0;
+  virtual flx_string get_sql() const = 0;
 };
 
 #endif // DB_QUERY_H

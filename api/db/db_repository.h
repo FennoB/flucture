@@ -135,6 +135,19 @@ private:
   // Helper methods for scan_relations refactoring
   relation_metadata scan_relation_from_model(flx_model* child_model, const flx_string& property_name, const flx_string& parent_table);
 
+  // Helper methods for construct_tree_recursive refactoring (SOLID principles)
+  struct child_relation_info {
+    flx_string table_name;
+    flx_string foreign_key_column;
+  };
+  child_relation_info extract_child_relation_info(flx_list* list_ptr, const flx_string& parent_table);
+  child_relation_info extract_child_relation_info_from_model(flx_model* child_model, const flx_string& parent_table);
+  flxv_vector collect_matching_child_rows(const child_relation_info& info, long long parent_id,
+                                           const std::map<flx_string, std::map<long long, flxv_map>>& all_rows);
+  struct child_row_result { long long child_id; bool found; };
+  child_row_result find_single_child_row(const child_relation_info& info, long long parent_id,
+                                          const std::map<flx_string, std::map<long long, flxv_map>>& all_rows);
+
   // Helper methods for search refactoring
   void validate_search_prerequisites(flx_list& results);  // Throws db_connection_error
   void execute_search_query(const db_search_criteria& criteria, flx_model& model, std::vector<flxv_map>& rows);  // Throws db_query_error
@@ -702,7 +715,7 @@ inline void db_repository::map_to_model(const flxv_map& row, flx_model& model)
 
 inline flx_string db_repository::get_sql_type(const flx_variant& value)
 {
-  if (value.is_string()) return "VARCHAR(255)";
+  if (value.is_string()) return "TEXT";
   if (value.is_int()) return "BIGINT";
   if (value.is_double()) return "DOUBLE PRECISION";
   if (value.is_bool()) return "BOOLEAN";
@@ -719,7 +732,7 @@ inline flx_string db_repository::get_sql_type_from_state(flx_variant::state stat
 
   switch (state) {
     case flx_variant::string_state:
-      return "VARCHAR(255)";
+      return "TEXT";
     case flx_variant::int_state:
       return "BIGINT";
     case flx_variant::double_state:
@@ -856,7 +869,7 @@ inline flx_string db_repository::extract_table_name(const flx_model& model)
     }
   }
 
-  // Fallback: empty string (will cause error)
+  // No primary_key found - return empty (model has no own table, maps to parent table)
   return "";
 }
 
@@ -948,8 +961,17 @@ inline void db_repository::save_nested_objects_impl(flx_model& model)
 
         save_nested_objects_impl(*item);  // Recursive save grandchildren
       }
+      catch (const db_query_error& e) {
+        // Preserve SQL and DB error details from db_query_error
+        flx_string detailed_message = e.what();
+        detailed_message += "\n  SQL: ";
+        detailed_message += e.get_sql();
+        detailed_message += "\n  DB Error: ";
+        detailed_message += e.get_database_error();
+        throw db_nested_save_error(parent_table, rel.related_table, detailed_message);
+      }
       catch (const db_exception& e) {
-        // Wrap any db_exception in db_nested_save_error to show hierarchy context
+        // Wrap other db_exceptions
         throw db_nested_save_error(parent_table, rel.related_table, e.what());
       }
     }
@@ -1071,7 +1093,8 @@ inline flx_string db_repository::build_child_insert_sql(const relation_metadata&
     first = false;
   }
 
-  return sql + ")" + values + ")";
+  flx_string result = sql + ")" + values + ")";
+  return result;
 }
 
 inline void db_repository::bind_and_execute_child_insert(db_query* query, const relation_metadata& rel,
@@ -1095,12 +1118,13 @@ inline void db_repository::bind_and_execute_child_insert(db_query* query, const 
     if (prop_it != item_properties.end()) {
       value = prop_it->second->access();
     }
+
     query->bind(field.column_name, value);
   }
 
   // Execute insert
   if (!query->execute()) {
-    throw db_query_error("Failed to execute child insert", "", query->get_last_error());
+    throw db_query_error("Failed to execute child insert", query->get_sql(), query->get_last_error());
   }
 }
 
@@ -1212,6 +1236,93 @@ inline db_repository::relation_metadata db_repository::scan_relation_from_model(
   }
 
   return rel;
+}
+
+// ============================================================================
+// Helper Methods for construct_tree_recursive (SOLID Refactoring)
+// ============================================================================
+
+// Extract table name and FK column from model_list using modern pattern
+inline db_repository::child_relation_info db_repository::extract_child_relation_info(
+  flx_list* list_ptr, const flx_string& parent_table)
+{
+  child_relation_info info;
+
+  if (list_ptr == nullptr) return info;
+
+  auto sample_elem = list_ptr->factory();
+  if (sample_elem.is_null()) return info;
+
+  auto rel = scan_relation_from_model(&(*sample_elem), "", parent_table);
+  info.table_name = rel.related_table;
+  info.foreign_key_column = rel.foreign_key_column;
+
+  return info;
+}
+
+// Extract table name and FK column from single child model using modern pattern
+inline db_repository::child_relation_info db_repository::extract_child_relation_info_from_model(
+  flx_model* child_model, const flx_string& parent_table)
+{
+  child_relation_info info;
+
+  if (child_model == nullptr) return info;
+
+  auto rel = scan_relation_from_model(child_model, "", parent_table);
+  info.table_name = rel.related_table;
+  info.foreign_key_column = rel.foreign_key_column;
+
+  return info;
+}
+
+// Collect all child rows matching parent FK
+inline flxv_vector db_repository::collect_matching_child_rows(
+  const child_relation_info& info, long long parent_id,
+  const std::map<flx_string, std::map<long long, flxv_map>>& all_rows)
+{
+  flxv_vector child_maps;
+
+  auto table_it = all_rows.find(info.table_name);
+  if (table_it == all_rows.end()) return child_maps;
+
+  for (const auto& [child_id, child_row] : table_it->second) {
+    auto fk_it = child_row.find(info.foreign_key_column);
+    if (fk_it == child_row.end()) continue;
+
+    long long fk_value = fk_it->second.int_value();
+    if (fk_value == parent_id) {
+      child_maps.push_back(flx_variant(child_row));
+    }
+  }
+
+  return child_maps;
+}
+
+// Find single child row (for 1:1 relations)
+inline db_repository::child_row_result db_repository::find_single_child_row(
+  const child_relation_info& info, long long parent_id,
+  const std::map<flx_string, std::map<long long, flxv_map>>& all_rows)
+{
+  child_row_result result;
+  result.found = false;
+  result.child_id = 0;
+
+  auto table_it = all_rows.find(info.table_name);
+  if (table_it == all_rows.end()) return result;
+
+  for (const auto& [child_id, child_row] : table_it->second) {
+    auto fk_it = child_row.find(info.foreign_key_column);
+    if (fk_it == child_row.end()) continue;
+
+    long long fk_value = fk_it->second.int_value();
+    if (fk_value == parent_id) {
+      result.found = true;
+      result.child_id = child_id;
+      return result;
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================
@@ -1766,75 +1877,38 @@ inline void db_repository::construct_tree_recursive(flx_model& model, const flx_
   // Step 2: Use read_row to create nested structures
   model.read_row(row);
 
-  // Step 3: Get properties for metadata
-  const auto& properties = model.get_properties();
+  // Step 3: Extract parent table name for child relations
+  flx_string parent_table = extract_table_name(model);
 
-  // Step 4: Process child models (flxp_model)
+  // Step 4: Process child models (flxp_model) - Modern pattern (no obsolete "table" metadata)
   const auto& children = model.get_children();
   for (const auto& [child_fieldname, child] : children) {
-    auto prop_it = properties.find(child_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info_from_model(child, parent_table);
 
-      if (meta.find("table") != meta.end() && meta.find("foreign_key") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-        flx_string foreign_key = meta.at("foreign_key").string_value();
+    if (info.table_name.empty() || info.foreign_key_column.empty()) continue;
 
-        // Find child ID by matching foreign key
-        auto child_table_it = all_rows.find(child_table);
-        if (child_table_it != all_rows.end()) {
-          for (const auto& [child_id, child_row] : child_table_it->second) {
-            // Check if foreign key matches parent ID
-            if (child_row.find(foreign_key) != child_row.end()) {
-              long long fk_value = child_row.at(foreign_key).int_value();
-              if (fk_value == id) {
-                // Recursively construct child
-                construct_tree_recursive(*child, child_table, child_id, all_rows);
-                break;  // Only one child model (not a list)
-              }
-            }
-          }
-        }
-      }
+    // Find single child row matching FK
+    auto result = find_single_child_row(info, id, all_rows);
+
+    if (result.found) {
+      construct_tree_recursive(*child, info.table_name, result.child_id, all_rows);
     }
   }
 
-  // Step 5: Process model_lists (flxp_model_list)
-  // Work with raw variant data to populate lists
+  // Step 5: Process model_lists (flxp_model_list) - Modern pattern (no obsolete "table" metadata)
   for (const auto& [list_fieldname, list] : model.get_model_lists()) {
-    auto prop_it = properties.find(list_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info(list, parent_table);
 
-      if (meta.find("table") != meta.end() && meta.find("foreign_key") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-        flx_string foreign_key = meta.at("foreign_key").string_value();
+    if (info.table_name.empty() || info.foreign_key_column.empty()) continue;
 
-        // Build vector of child maps
-        flxv_vector child_maps;
+    // Collect matching child rows
+    flxv_vector child_maps = collect_matching_child_rows(info, id, all_rows);
 
-        // Find all children with matching foreign key
-        auto child_table_it = all_rows.find(child_table);
-        if (child_table_it != all_rows.end()) {
-          for (const auto& [child_id, child_row] : child_table_it->second) {
-            // Check if foreign key matches parent ID
-            if (child_row.find(foreign_key) != child_row.end()) {
-              long long fk_value = child_row.at(foreign_key).int_value();
-              if (fk_value == id) {
-                // Create a temporary child model and recursively construct it
-                // We'll do this after we have the list properly set up
-                flxv_map child_map = child_row;  // Copy the row data
-                child_maps.push_back(child_map);
-              }
-            }
-          }
-        }
-
-        // Set the list in the model's raw data
-        if (!child_maps.empty()) {
-          model[list_fieldname] = flx_variant(child_maps);
-        }
-      }
+    // Set list in model's raw data if children found
+    if (!child_maps.empty()) {
+      model[list_fieldname] = flx_variant(child_maps);
     }
   }
 

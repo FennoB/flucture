@@ -779,6 +779,83 @@ for (const auto& contour : contours) {
 // NOT using traditional findContours for initial region detection
 ```
 
+### XML Processing (flx_xml)
+
+**String-Based Parsing Architecture** (November 2025 update):
+
+**Design Philosophy:**
+- XML layer reads ALL content as strings (no automatic type detection)
+- Type conversion happens at model property level based on property types
+- Prevents false positives from `std::stod()` parsing "inf" from "info@..." strings
+
+**File:** `api/xml/flx_xml.{h,cpp}`
+
+**Basic Parsing:**
+```cpp
+#include "api/xml/flx_xml.h"
+
+flxv_map data;
+flx_xml xml(&data);
+
+// Parse XML - all text and attributes stored as strings
+bool success = xml.parse("<root><age>42</age><email>info@example.com</email></root>");
+
+// Access as strings, convert manually
+flxv_map root = data["root"].to_map();
+flxv_map age = root["age"].to_map();
+int age_value = age["#text"].string_value().to_int(0);  // ← Manual conversion
+
+flxv_map email = root["email"].to_map();
+flx_string email_value = email["#text"].string_value();  // ← Stays as string
+```
+
+**Key Changes (November 2025):**
+- **Before:** XML parser used `is_double()`, `is_integer()` → caused "info@..." to parse as `inf`
+- **After:** ALL XML content stored as strings → model properties handle conversion
+- **Benefit:** `flxp_string` properties get strings, `flxp_int` properties convert via variant
+
+**Attributes:**
+```cpp
+// Attributes prefixed with "@"
+xml.parse("<user id=\"123\" active=\"true\">John</user>");
+
+flxv_map user = data["user"].to_map();
+int id = user["@id"].string_value().to_int(0);
+bool active = user["@active"].string_value() == "true";
+flx_string name = user["#text"].string_value();
+```
+
+**Namespace Handling:**
+```cpp
+// Namespaces automatically stripped from element and attribute names
+xml.parse("<ns:root xmlns:ns='http://example.com'><ns:item ns:id='1'>Test</ns:item></ns:root>");
+
+// Access without namespace prefix
+flxv_map root = data["root"].to_map();
+flxv_map item = root["item"].to_map();
+```
+
+**Model Integration:**
+```cpp
+class MyModel : public flx_model {
+    flxp_int(age);              // Will convert string "42" → int 42
+    flxp_string(email);         // Will keep string "info@example.com"
+    flxp_double(price);         // Will convert string "19.99" → double 19.99
+};
+
+// XML → variant map → model (conversions happen automatically)
+MyModel model;
+model.read_xml(xml_data);
+```
+
+**Common Conversion Pattern:**
+```cpp
+// In tests and manual parsing:
+value.string_value().to_int(0)      // String → int
+value.string_value().to_double(0.0) // String → double
+value.string_value() == "true"      // String → bool check
+```
+
 ### OpenAI API Integration
 
 **Setup:**

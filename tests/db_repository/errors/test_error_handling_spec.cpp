@@ -295,29 +295,6 @@ SCENARIO("Unique constraint violation throws db_unique_violation", "[repo][error
 }
 
 // ============================================================================
-// QUERY ERRORS
-// ============================================================================
-
-SCENARIO("Invalid SQL throws db_prepare_error", "[repo][error][query][integration][db]") {
-    GIVEN("A repository") {
-        if (!global_db_setup()) {
-            SKIP("Database not available");
-        }
-
-        pg_connection& conn = get_test_connection();
-        db_repository repo(&conn);
-
-        // This would require injecting invalid SQL, which is hard to do
-        // without modifying db_repository internals
-        // Placeholder for future implementation
-
-        THEN("Placeholder test") {
-            SKIP("Requires SQL injection capability for testing");
-        }
-    }
-}
-
-// ============================================================================
 // HIERARCHICAL ERRORS
 // ============================================================================
 
@@ -362,28 +339,6 @@ SCENARIO("Failed nested save throws db_nested_save_error", "[repo][error][hierar
                 }
             }
         }
-    }
-}
-
-// ============================================================================
-// METADATA ERRORS
-// ============================================================================
-
-SCENARIO("Model without column metadata throws db_no_fields_error", "[repo][error][metadata][unit][db]") {
-    // This would require a test model with NO column metadata
-    // Placeholder for future implementation
-
-    THEN("Placeholder test") {
-        SKIP("Requires test model without metadata");
-    }
-}
-
-SCENARIO("Model without primary_key metadata throws db_no_table_name_error", "[repo][error][metadata][unit][db]") {
-    // This would require a test model with properties but no primary_key
-    // Placeholder for future implementation
-
-    THEN("Placeholder test") {
-        SKIP("Requires test model without primary_key metadata");
     }
 }
 

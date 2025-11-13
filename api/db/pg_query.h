@@ -22,6 +22,7 @@ public:
 
   int rows_affected() const override;
   flx_string get_last_error() const override;
+  flx_string get_sql() const override;
 
 private:
   struct impl;

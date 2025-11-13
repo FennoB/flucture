@@ -17,20 +17,6 @@ flx_http_daemon::response flx_rest_api::handle(flx_http_daemon::request req)
     r.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
     r.statuscode = 204;
   }
-  //else
-  //{
-  //  QFile file("servedfiles/" + req.path.remove(0,1));
-  //  if (file.open(QFile::ReadOnly))
-  //  {
-  //    QByteArray data = file.readAll();
-  //    r.body = data;
-  //    r.statuscode = 200;
-  //  }
-  //  else
-  //  {
-  //    r.statuscode = 200;
-  //  }
-  //}
   return r;
 }
 

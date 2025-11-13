@@ -243,7 +243,27 @@ void flx_model::read_xml_properties(flx_xml& xml, const flx_string& base_path)
       const flx_variant* value = xml.read_path(full_path);
       if (value) {
         const flx_string& cpp_name = prop_pair.first;
-        (**this)[cpp_name] = *value;
+
+        // Auto-extract #text for basic type properties when XML path points to a map
+        // This handles elements that sometimes have attributes (map) and sometimes don't (string)
+        // Basic properties (flxp_string, flxp_int, etc.) need the #text value
+        // Nested models (flxp_model) need the full map
+        if (value->in_state() == flx_variant::map_state) {
+          const flxv_map& value_map = value->map_value();
+
+          // If map contains #text, prefer that for assignment
+          // This automatically works for basic properties (string, int, double, bool, datetime)
+          // and is ignored for nested models/lists which expect maps
+          if (value_map.find("#text") != value_map.end()) {
+            (**this)[cpp_name] = value_map.at("#text");
+          } else {
+            // No #text - assign the map as-is (for nested models)
+            (**this)[cpp_name] = *value;
+          }
+        } else {
+          // Not a map - assign directly
+          (**this)[cpp_name] = *value;
+        }
       }
     }
   }
@@ -279,25 +299,20 @@ void flx_model::read_xml_single_list(flx_xml& xml, const flx_string& base_path,
   if (!list_data) return;
 
   if (list_data->in_state() == flx_variant::vector_state) {
-    // Multiple elements - iterate
+    // Multiple elements - iterate over raw data and create mapped models
     const flxv_vector& vec = list_data->vector_value();
-    (**this)[cpp_name] = *list_data;
-    list_ptr->resync();
 
     for (size_t i = 0; i < vec.size(); ++i) {
+      list_ptr->add_element();  // Create empty element
+      flx_model& element_model = list_ptr->back();  // Get via back()
       flx_string element_path = flx_xml::replace_first_placeholder(list_path, i);
-      flx_model* element_model = list_ptr->get_model_at(i);
-      element_model->read_xml(xml, element_path);
+      element_model.read_xml(xml, element_path);  // Map XML to model
     }
   } else if (list_data->in_state() == flx_variant::map_state) {
-    // Single element - convert to vector
-    flxv_vector vec;
-    vec.push_back(*list_data);
-    (**this)[cpp_name] = flx_variant(vec);
-    list_ptr->resync();
-
-    flx_model* element_model = list_ptr->get_model_at(0);
-    element_model->read_xml(xml, list_path_no_placeholder);
+    // Single element - create mapped model directly
+    list_ptr->add_element();  // Create empty element
+    flx_model& element_model = list_ptr->back();  // Get via back()
+    element_model.read_xml(xml, list_path_no_placeholder);  // Map XML to model
   }
 }
 
