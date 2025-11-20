@@ -50,15 +50,6 @@ set(FLUCTURE_CORE_SOURCES
   documents/qr/qrcodegen.cpp
 )
 
-# Add XML support if pugixml is available
-if(PUGIXML_FOUND)
-  message(STATUS "pugixml found - enabling XML support")
-  list(APPEND FLUCTURE_CORE_SOURCES api/xml/flx_xml.cpp)
-  list(APPEND FLUCTURE_CORE_HEADERS api/xml/flx_xml.h)
-else()
-  message(STATUS "pugixml not found - XML support disabled")
-endif()
-
 set(FLUCTURE_CORE_HEADERS
   utils/flx_string.h
   utils/flx_model.h
@@ -127,6 +118,47 @@ pkg_check_modules(PQXX REQUIRED libpqxx)
 # pugixml (XML parser library) - OPTIONAL
 pkg_check_modules(PUGIXML pugixml)
 
+# MCP (Model Context Protocol library) - OPTIONAL
+option(FLUCTURE_ENABLE_MCP "Enable MCP (Model Context Protocol) support" OFF)
+
+if(FLUCTURE_ENABLE_MCP)
+  # Try to find cpp-mcp library
+  # First check if MCP_ROOT is set (for custom installations)
+  if(DEFINED ENV{MCP_ROOT})
+    set(MCP_ROOT $ENV{MCP_ROOT})
+  elseif(EXISTS "${CMAKE_SOURCE_DIR}/../cpp-mcp")
+    set(MCP_ROOT "${CMAKE_SOURCE_DIR}/../cpp-mcp")
+  elseif(EXISTS "/home/fenno/cpp-mcp")
+    set(MCP_ROOT "/home/fenno/cpp-mcp")
+  endif()
+
+  if(MCP_ROOT AND EXISTS "${MCP_ROOT}/include/mcp_server.h")
+    message(STATUS "Found cpp-mcp at: ${MCP_ROOT}")
+    set(MCP_INCLUDE_DIRS
+      "${MCP_ROOT}/include"
+      "${MCP_ROOT}/common"
+    )
+    set(MCP_LIBRARY_DIR "${MCP_ROOT}/build/src")
+    set(MCP_LIBRARIES "mcp")
+    set(MCP_FOUND TRUE)
+
+    # Add MCP source files to the core library
+    message(STATUS "Adding MCP source files to flucture_core")
+    list(APPEND FLUCTURE_CORE_SOURCES api/mcp/flx_mcp_adapter.cpp)
+    list(APPEND FLUCTURE_CORE_HEADERS api/mcp/flx_mcp_adapter.h)
+  else()
+    message(WARNING "cpp-mcp not found - MCP support disabled. Set MCP_ROOT to cpp-mcp installation directory.")
+    set(MCP_FOUND FALSE)
+  endif()
+endif()
+
+# Add XML support if pugixml is available (check AFTER pkg_check_modules)
+if(PUGIXML_FOUND)
+  message(STATUS "Adding XML source files to flucture_core")
+  list(APPEND FLUCTURE_CORE_SOURCES api/xml/flx_xml.cpp)
+  list(APPEND FLUCTURE_CORE_HEADERS api/xml/flx_xml.h)
+endif()
+
 # --- flucture_core Library ---
 add_library(flucture_core ${FLUCTURE_CORE_SOURCES} ${FLUCTURE_CORE_HEADERS})
 
@@ -135,14 +167,20 @@ if(PUGIXML_FOUND)
   target_compile_definitions(flucture_core PUBLIC FLX_ENABLE_XML)
 endif()
 
+# Enable MCP support if cpp-mcp is available
+if(FLUCTURE_ENABLE_MCP AND MCP_FOUND)
+  target_compile_definitions(flucture_core PUBLIC FLX_ENABLE_MCP)
+endif()
+
 # Include paths for the flucture_core library
+# Use CMAKE_CURRENT_SOURCE_DIR to work correctly when added as subdirectory
 target_include_directories(flucture_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR} # Allows includes relative to project root (e.g. "utils/flx_string.h")
-  ${CMAKE_SOURCE_DIR}/documents/pdf/podofo-master/src #
-  ${CMAKE_SOURCE_DIR}/documents/pdf/podofo-master/src/podofo #
-  ${CMAKE_SOURCE_DIR}/documents/pdf/podofo-master/3rdparty #
+  ${CMAKE_CURRENT_SOURCE_DIR}/documents/pdf/podofo-master/src #
+  ${CMAKE_CURRENT_SOURCE_DIR}/documents/pdf/podofo-master/src/podofo #
+  ${CMAKE_CURRENT_SOURCE_DIR}/documents/pdf/podofo-master/3rdparty #
   /usr/include/freetype2/ #
-  ${CMAKE_SOURCE_DIR}/api/client/libmicrohttpd_x86_64/include #
+  ${CMAKE_CURRENT_SOURCE_DIR}/api/client/libmicrohttpd_x86_64/include #
   ${OpenCV_INCLUDE_DIRS} #
   ${CURL_INCLUDE_DIRS} #
   ${OPENSSL_INCLUDE_DIR} #
@@ -154,9 +192,16 @@ if(PUGIXML_FOUND)
   target_include_directories(flucture_core PUBLIC ${PUGIXML_INCLUDE_DIRS})
 endif()
 
+# Add MCP include dirs if available
+if(FLUCTURE_ENABLE_MCP AND MCP_FOUND)
+  target_include_directories(flucture_core PUBLIC ${MCP_INCLUDE_DIRS})
+  target_link_directories(flucture_core PUBLIC ${MCP_LIBRARY_DIR})
+endif()
+
 # Library paths for libmicrohttpd (an Imported Target would be more modern)
+# Use CMAKE_CURRENT_SOURCE_DIR to work correctly when added as subdirectory
 target_link_directories(flucture_core PUBLIC
-  ${CMAKE_SOURCE_DIR}/api/client/libmicrohttpd_x86_64/lib #
+  ${CMAKE_CURRENT_SOURCE_DIR}/api/client/libmicrohttpd_x86_64/lib #
 )
 
 # Link dependencies to the flucture_core library
@@ -174,6 +219,11 @@ target_link_libraries(flucture_core PUBLIC
 # Link pugixml if available
 if(PUGIXML_FOUND)
   target_link_libraries(flucture_core PUBLIC ${PUGIXML_LIBRARIES})
+endif()
+
+# Link MCP if available
+if(FLUCTURE_ENABLE_MCP AND MCP_FOUND)
+  target_link_libraries(flucture_core PUBLIC ${MCP_LIBRARIES})
 endif()
 
 # --- flucture executable ---

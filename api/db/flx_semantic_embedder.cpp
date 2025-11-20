@@ -35,9 +35,27 @@ flx_string flx_semantic_embedder::extract_text_from_property(flx_property_i* pro
         }
         return flx_string();  // No child found
     } else if (val.in_state() == flx_variant::vector_state) {
-        // Model list - can't access typed models from here
-        // Lists need special handling via flx_model_list which manages typed models
-        // For now, we skip model_list extraction in this simple property access
+        // Model list - access via get_model_lists() like db_repository does
+        const auto& lists = model.get_model_lists();
+        auto list_it = lists.find(prop->prop_name());
+        if (list_it != lists.end() && list_it->second != nullptr) {
+            flx_list* list_ptr = list_it->second;
+            std::stringstream list_texts;
+
+            // Iterate through all items in the list
+            for (size_t i = 0; i < list_ptr->list_size(); ++i) {
+                flx_model* item = list_ptr->get_model_at(i);
+                if (item != nullptr) {
+                    // Recursively extract semantic text from each item
+                    flx_string item_text = create_semantic_dna(*item);
+                    if (!item_text.empty()) {
+                        list_texts << item_text.c_str() << " ";
+                    }
+                }
+            }
+
+            return flx_string(list_texts.str().c_str());
+        }
         return flx_string();
     }
 

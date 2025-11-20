@@ -1,6 +1,6 @@
 # General Information
 PROJECT_NAME           = PoDoFo
-PROJECT_NUMBER         = 1.0.0-dev
+PROJECT_NUMBER         = 1.0.0
 OUTPUT_DIRECTORY       = "/home/fenno/Projects/flucture/documents/pdf/podofo-master/doxygen"
 
 # General Configuration
