@@ -6,7 +6,10 @@
 #include <map>
 #include <mutex>
 
+// Compatibility with older libmicrohttpd versions
+#if MHD_VERSION < 0x00097002
 typedef int MHD_Result;
+#endif
 
 class flx_http_daemon
 {
