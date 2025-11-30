@@ -1341,42 +1341,13 @@ inline void db_repository::validate_search_prerequisites(flx_list& results)
 
 inline void db_repository::execute_search_query(const db_search_criteria& criteria, flx_model& model, std::vector<flxv_map>& rows)
 {
-  auto total_start = std::chrono::steady_clock::now();
-
   // Build SQL query
-  auto build_start = std::chrono::steady_clock::now();
   db_query_builder builder;
   builder.from(extract_table_name(model));
   criteria.apply_to(builder);
   flx_string sql = builder.build_select();
-  auto build_end = std::chrono::steady_clock::now();
-  auto build_ms = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-
-  // EXPLAIN ANALYZE for vector searches
-  bool is_vector_search = criteria.has_vector_search();
-  if (is_vector_search) {
-    std::cout << "[DB] Vector search detected, running EXPLAIN ANALYZE..." << std::endl;
-    auto explain_query = connection_->create_query();
-    flx_string explain_sql = "EXPLAIN ANALYZE " + sql;
-    if (explain_query && explain_query->prepare(explain_sql)) {
-      const auto& params = builder.get_parameters();
-      for (const auto& param : params) {
-        explain_query->bind(param.first, param.second);
-      }
-      if (explain_query->execute()) {
-        auto explain_rows = explain_query->get_all_rows();
-        std::cout << "[DB] EXPLAIN ANALYZE output:" << std::endl;
-        for (const auto& row : explain_rows) {
-          if (row.find("QUERY PLAN") != row.end()) {
-            std::cout << "  " << row.at("QUERY PLAN").string_value().c_str() << std::endl;
-          }
-        }
-      }
-    }
-  }
 
   // Prepare query
-  auto prepare_start = std::chrono::steady_clock::now();
   auto query = connection_->create_query();
   if (!query) {
     throw db_query_error("Failed to create query");
@@ -1385,41 +1356,20 @@ inline void db_repository::execute_search_query(const db_search_criteria& criter
   if (!query->prepare(sql)) {
     throw db_prepare_error("Failed to prepare search query", sql, query->get_last_error());
   }
-  auto prepare_end = std::chrono::steady_clock::now();
-  auto prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(prepare_end - prepare_start).count();
 
   // Bind parameters
-  auto bind_start = std::chrono::steady_clock::now();
   const auto& params = builder.get_parameters();
   for (const auto& param : params) {
     query->bind(param.first, param.second);
   }
-  auto bind_end = std::chrono::steady_clock::now();
-  auto bind_ms = std::chrono::duration_cast<std::chrono::milliseconds>(bind_end - bind_start).count();
 
   // Execute query
-  auto execute_start = std::chrono::steady_clock::now();
   if (!query->execute()) {
     throw db_query_error("Failed to execute search", sql, query->get_last_error());
   }
-  auto execute_end = std::chrono::steady_clock::now();
-  auto execute_ms = std::chrono::duration_cast<std::chrono::milliseconds>(execute_end - execute_start).count();
 
   // Fetch results
-  auto fetch_start = std::chrono::steady_clock::now();
   rows = query->get_all_rows();
-  auto fetch_end = std::chrono::steady_clock::now();
-  auto fetch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(fetch_end - fetch_start).count();
-
-  auto total_end = std::chrono::steady_clock::now();
-  auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start).count();
-
-  std::cout << "[DB PROFILING] Total: " << total_ms << "ms | "
-            << "Build: " << build_ms << "ms | "
-            << "Prepare: " << prepare_ms << "ms | "
-            << "Bind: " << bind_ms << "ms | "
-            << "Execute: " << execute_ms << "ms | "
-            << "Fetch: " << fetch_ms << "ms" << std::endl;
 }
 
 inline void db_repository::process_search_results(const std::vector<flxv_map>& rows, flx_list& results)
@@ -1975,8 +1925,6 @@ inline void db_repository::construct_tree_recursive(flx_model& model, const flx_
 
 inline void db_repository::search_hierarchical(const db_search_criteria& criteria, flx_list& results)
 {
-  auto total_start = std::chrono::steady_clock::now();
-
   // Get sample model from list factory
   auto sample = results.factory();
   if (sample.is_null()) {
@@ -1985,35 +1933,9 @@ inline void db_repository::search_hierarchical(const db_search_criteria& criteri
   flx_model& model = *sample;
 
   // Phase 1: Build and execute ID hierarchy query
-  auto build_start = std::chrono::steady_clock::now();
   db_query_builder builder;
   flx_string sql = build_hierarchy_query(model, extract_table_name(model), criteria, builder);
-  auto build_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - build_start).count();
 
-  // EXPLAIN ANALYZE for vector searches
-  bool is_vector_search = criteria.has_vector_search();
-  if (is_vector_search) {
-    std::cout << "[DB] Vector search hierarchical detected, running EXPLAIN ANALYZE..." << std::endl;
-    auto explain_query = connection_->create_query();
-    flx_string explain_sql = "EXPLAIN ANALYZE " + sql;
-    if (explain_query && explain_query->prepare(explain_sql)) {
-      const auto& params = builder.get_parameters();
-      for (const auto& param : params) {
-        explain_query->bind(param.first, param.second);
-      }
-      if (explain_query->execute()) {
-        std::cout << "[DB] EXPLAIN ANALYZE output:" << std::endl;
-        while (explain_query->next()) {
-          auto explain_row = explain_query->get_row();
-          if (explain_row.find("QUERY PLAN") != explain_row.end()) {
-            std::cout << "  " << explain_row.at("QUERY PLAN").string_value().c_str() << std::endl;
-          }
-        }
-      }
-    }
-  }
-
-  auto prepare_start = std::chrono::steady_clock::now();
   auto query = connection_->create_query();
   if (!query) {
     throw db_query_error("Failed to create query object");
@@ -2022,35 +1944,22 @@ inline void db_repository::search_hierarchical(const db_search_criteria& criteri
   if (!query->prepare(sql)) {
     throw db_prepare_error("Failed to prepare hierarchy query", sql, query->get_last_error());
   }
-  auto prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - prepare_start).count();
 
   // Bind parameters from query builder
-  auto bind_start = std::chrono::steady_clock::now();
   const auto& params = builder.get_parameters();
   for (const auto& param : params) {
     query->bind(param.first, param.second);
   }
-  auto bind_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - bind_start).count();
 
-  auto execute_start = std::chrono::steady_clock::now();
   if (!query->execute()) {
     throw db_query_error("Failed to execute hierarchy query", sql, query->get_last_error());
   }
-  auto execute_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - execute_start).count();
 
   // Collect all result rows
-  auto fetch_start = std::chrono::steady_clock::now();
   std::vector<flxv_map> rows;
   while (query->next()) {
     rows.push_back(query->get_row());
   }
-  auto fetch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - fetch_start).count();
-
-  std::cout << "[DB PROFILING HIERARCHICAL] Build: " << build_ms << "ms | "
-            << "Prepare: " << prepare_ms << "ms | "
-            << "Bind: " << bind_ms << "ms | "
-            << "Execute: " << execute_ms << "ms | "
-            << "Fetch: " << fetch_ms << "ms" << std::endl;
 
   if (rows.empty()) {
     return;  // No results - success but empty
@@ -2059,46 +1968,26 @@ inline void db_repository::search_hierarchical(const db_search_criteria& criteri
   // Extract distance values if semantic search was used
   std::map<long long, double> distance_map;
   if (criteria.has_vector_search()) {
-    std::cout << "[DISTANCE DEBUG] Extracting distances from " << rows.size() << " rows" << std::endl;
     for (const auto& row : rows) {
-      // Debug: print all fields in this row
-      std::cout << "[DISTANCE DEBUG] Row fields: ";
-      for (const auto& field : row) {
-        std::cout << field.first.c_str() << " ";
-      }
-      std::cout << std::endl;
-
       // Check if distance field exists
       if (row.find("distance") != row.end()) {
-        std::cout << "[DISTANCE DEBUG] Found distance field in row!" << std::endl;
         try {
           // Get the root table ID
-          std::cout << "[DISTANCE DEBUG] Creating qualified_id..." << std::endl;
           flx_string qualified_id = flx_string(extract_table_name(model).c_str()) + flx_string(".id");
-          std::cout << "[DISTANCE DEBUG] Looking for qualified_id: " << qualified_id.c_str() << std::endl;
 
           if (row.find(qualified_id) != row.end()) {
-            std::cout << "[DISTANCE DEBUG] Found qualified_id in row!" << std::endl;
             // Use convert() to get type-converted copies
             flx_variant id_variant = row.at(qualified_id).convert(flx_variant::int_state);
             flx_variant dist_variant = row.at("distance").convert(flx_variant::double_state);
             long long id = id_variant.to_int();
             double distance = dist_variant.to_double();
             distance_map[id] = distance;
-            std::cout << "[DISTANCE DEBUG] Stored distance " << distance << " for ID " << id << std::endl;
-          } else {
-            std::cout << "[DISTANCE DEBUG] qualified_id NOT found in row!" << std::endl;
           }
-        } catch (const std::exception& e) {
-          std::cerr << "[DISTANCE DEBUG] Exception: " << e.what() << std::endl;
         } catch (...) {
-          std::cerr << "[DISTANCE DEBUG] Unknown exception!" << std::endl;
+          // Silently skip distance extraction errors
         }
-      } else {
-        std::cout << "[DISTANCE DEBUG] Distance field NOT in row" << std::endl;
       }
     }
-    std::cout << "[DISTANCE DEBUG] Total distances extracted: " << distance_map.size() << std::endl;
   }
 
   // Phase 2: Parse results to get ID sets per table
