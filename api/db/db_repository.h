@@ -83,6 +83,7 @@ public:
   virtual std::set<flx_string> collect_all_table_names(flx_model& model, const flx_string& root_table);
   virtual flx_string build_joins_recursive(flx_model& model, const flx_string& parent_table);
   virtual flx_string build_id_selects_recursive(flx_model& model, const flx_string& table_name);
+  virtual flx_string qualify_where_columns(const flx_string& sql, const flx_string& table_qualifier);
   virtual flx_string build_hierarchy_query(flx_model& model, const flx_string& root_table, const db_search_criteria& criteria, db_query_builder& builder);
   virtual std::map<flx_string, std::set<long long>> parse_hierarchy_results(const std::vector<flxv_map>& rows, flx_model& model, const flx_string& root_table);
   virtual std::map<flx_string, std::map<long long, flxv_map>> batch_load_rows(const std::map<flx_string, std::set<long long>>& id_sets);
@@ -1564,15 +1565,15 @@ inline std::set<flx_string> db_repository::collect_all_table_names(flx_model& mo
   const auto& model_lists = model.get_model_lists();
   for (const auto& list_pair : model_lists) {
     flx_list* list = list_pair.second;
-    if (list == nullptr || list->list_size() == 0) continue;
+    if (list == nullptr) continue;
 
-    // Get first element to inspect structure
-    flx_model* first_elem = list->get_model_at(0);
-    if (first_elem == nullptr) continue;
+    // Use factory() to get sample element (works even if list is empty!)
+    auto sample_elem = list->factory();
+    if (sample_elem.is_null()) continue;
 
     // Extract table name from element's primary_key metadata
     flx_string child_table;
-    const auto& elem_properties = first_elem->get_properties();
+    const auto& elem_properties = sample_elem->get_properties();
     for (const auto& [prop_name, prop] : elem_properties) {
       const flxv_map& meta = prop->get_meta();
       if (meta.find("primary_key") != meta.end()) {
@@ -1586,7 +1587,7 @@ inline std::set<flx_string> db_repository::collect_all_table_names(flx_model& mo
       tables.insert(child_table);
 
       // Recursively collect nested tables
-      auto child_tables = collect_all_table_names(*first_elem, child_table);
+      auto child_tables = collect_all_table_names(*sample_elem, child_table);
       tables.insert(child_tables.begin(), child_tables.end());
     }
   }
@@ -1605,61 +1606,45 @@ inline flx_string db_repository::build_joins_recursive(flx_model& model, const f
   // Get all properties to access metadata
   const auto& properties = model.get_properties();
 
-  // Process child models (flxp_model)
+  // Process child models (flxp_model) - Modern pattern (scan child for FK)
   const auto& children = model.get_children();
   for (const auto& child_pair : children) {
     const flx_string& child_fieldname = child_pair.first;
     flx_model* child = child_pair.second;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(child_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info_from_model(child, parent_table);
 
-      // Check if this child has table and foreign_key metadata
-      if (meta.find("table") != meta.end() && meta.find("foreign_key") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-        flx_string foreign_key = meta.at("foreign_key").string_value();
+    if (!info.table_name.empty() && !info.foreign_key_column.empty()) {
+      // Build LEFT JOIN clause
+      joins += " LEFT JOIN " + info.table_name +
+               " ON " + parent_table + "." + parent_pk +
+               " = " + info.table_name + "." + info.foreign_key_column;
 
-        // Build LEFT JOIN clause
-        joins += " LEFT JOIN " + child_table +
-                 " ON " + parent_table + "." + parent_pk +
-                 " = " + child_table + "." + foreign_key;
-
-        // Recursively build joins for this child
-        joins += build_joins_recursive(*child, child_table);
-      }
+      // Recursively build joins for this child
+      joins += build_joins_recursive(*child, info.table_name);
     }
   }
 
-  // Process model_lists (flxp_model_list)
+  // Process model_lists (flxp_model_list) - Modern pattern (scan child for FK)
   const auto& model_lists = model.get_model_lists();
   for (const auto& list_pair : model_lists) {
     const flx_string& list_fieldname = list_pair.first;
     flx_list* list = list_pair.second;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(list_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info(list, parent_table);
 
-      // Check if this list has table and foreign_key metadata
-      if (meta.find("table") != meta.end() && meta.find("foreign_key") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
-        flx_string foreign_key = meta.at("foreign_key").string_value();
+    if (!info.table_name.empty() && !info.foreign_key_column.empty()) {
+      // Build LEFT JOIN clause
+      joins += " LEFT JOIN " + info.table_name +
+               " ON " + parent_table + "." + parent_pk +
+               " = " + info.table_name + "." + info.foreign_key_column;
 
-        // Build LEFT JOIN clause
-        joins += " LEFT JOIN " + child_table +
-                 " ON " + parent_table + "." + parent_pk +
-                 " = " + child_table + "." + foreign_key;
-
-        // Recursively build joins for list elements (if list has elements)
-        if (list->list_size() > 0) {
-          flx_model* first_elem = list->get_model_at(0);
-          if (first_elem) {
-            joins += build_joins_recursive(*first_elem, child_table);
-          }
-        }
+      // Recursively build joins for list elements
+      auto sample_elem = list->factory();
+      if (!sample_elem.is_null()) {
+        joins += build_joins_recursive(*sample_elem, info.table_name);
       }
     }
   }
@@ -1681,59 +1666,45 @@ inline flx_string db_repository::build_id_selects_recursive(flx_model& model, co
   // Get all properties to access metadata
   const auto& properties = model.get_properties();
 
-  // Process child models (flxp_model)
+  // Process child models (flxp_model) - Modern pattern (scan child for table)
   const auto& children = model.get_children();
   for (const auto& child_pair : children) {
     const flx_string& child_fieldname = child_pair.first;
     flx_model* child = child_pair.second;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(child_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info_from_model(child, table_name);
 
-      // Check if this child has table metadata
-      if (meta.find("table") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
+    if (!info.table_name.empty()) {
+      // Add comma before child selects
+      selects += ", ";
 
-        // Add comma before child selects
-        selects += ", ";
-
-        // Recursively build ID selects for this child
-        selects += build_id_selects_recursive(*child, child_table);
-      }
+      // Recursively build ID selects for this child
+      selects += build_id_selects_recursive(*child, info.table_name);
     }
   }
 
-  // Process model_lists (flxp_model_list)
+  // Process model_lists (flxp_model_list) - Modern pattern (scan child for table)
   const auto& model_lists = model.get_model_lists();
   for (const auto& list_pair : model_lists) {
     const flx_string& list_fieldname = list_pair.first;
     flx_list* list = list_pair.second;
 
-    // Find the corresponding property to get metadata
-    auto prop_it = properties.find(list_fieldname);
-    if (prop_it != properties.end()) {
-      const flxv_map& meta = prop_it->second->get_meta();
+    // Extract child relation info using modern scan pattern
+    auto info = extract_child_relation_info(list, table_name);
 
-      // Check if this list has table metadata
-      if (meta.find("table") != meta.end()) {
-        flx_string child_table = meta.at("table").string_value();
+    if (!info.table_name.empty()) {
+      // Add comma before child selects
+      selects += ", ";
 
-        // Add comma before child selects
-        selects += ", ";
-
-        // Recursively build ID selects for list elements (if list has elements)
-        if (list->list_size() > 0) {
-          flx_model* first_elem = list->get_model_at(0);
-          if (first_elem) {
-            selects += build_id_selects_recursive(*first_elem, child_table);
-          }
-        } else {
-          // List is empty - still add ID select for this table
-          // Use "id" as default primary key (most common case)
-          selects += child_table + ".id AS \"" + child_table + ".id\"";
-        }
+      // Recursively build ID selects for list elements
+      auto sample_elem = list->factory();
+      if (!sample_elem.is_null()) {
+        selects += build_id_selects_recursive(*sample_elem, info.table_name);
+      } else {
+        // Factory failed - still add ID select for this table
+        // Use "id" as default primary key (most common case)
+        selects += info.table_name + ".id AS \"" + info.table_name + ".id\"";
       }
     }
   }
@@ -1741,6 +1712,57 @@ inline flx_string db_repository::build_id_selects_recursive(flx_model& model, co
   return selects;
 }
 
+
+// Helper to qualify unqualified column names in WHERE clause with table prefix
+inline flx_string db_repository::qualify_where_columns(const flx_string& sql, const flx_string& table_qualifier)
+{
+  // Find WHERE clause
+  size_t where_pos = sql.find(" WHERE ");
+  if (where_pos == flx_string::npos) {
+    return sql;  // No WHERE clause
+  }
+
+  flx_string before_where = sql.substr(0, where_pos + 7);  // Include " WHERE "
+  flx_string where_clause = sql.substr(where_pos + 7);
+
+  // Simple regex-like replacement: find column names before operators
+  // This replaces "column " with "table.column " if column doesn't already contain "."
+  // Matches patterns like: "column =", "column <", "column >", "column IN", etc.
+
+  // Split on common patterns to find unqualified column names
+  flx_string result = where_clause;
+
+  // For each comparison operator, qualify the left-hand side if needed
+  const flx_string operators[] = {" = ", " != ", " < ", " > ", " <= ", " >= ", " IN ", " LIKE ", " NOT "};
+
+  for (const auto& op : operators) {
+    size_t pos = 0;
+    while ((pos = result.find(op, pos)) != flx_string::npos) {
+      // Find the column name before this operator
+      size_t col_start = pos;
+      while (col_start > 0 && (std::isalnum(result[col_start - 1]) || result[col_start - 1] == '_')) {
+        col_start--;
+      }
+
+      if (col_start < pos) {
+        flx_string column = result.substr(col_start, pos - col_start);
+
+        // Only qualify if it doesn't already contain a dot
+        if (column.find(".") == flx_string::npos) {
+          flx_string qualified = table_qualifier + "." + column;
+          result = result.substr(0, col_start) + qualified + result.substr(pos);
+          pos = col_start + qualified.length() + op.length();
+        } else {
+          pos += op.length();
+        }
+      } else {
+        pos += op.length();
+      }
+    }
+  }
+
+  return before_where + result;
+}
 
 inline flx_string db_repository::build_hierarchy_query(flx_model& model, const flx_string& root_table, const db_search_criteria& criteria, db_query_builder& builder)
 {
@@ -1763,6 +1785,11 @@ inline flx_string db_repository::build_hierarchy_query(flx_model& model, const f
 
   // Build SQL and insert JOINs at correct position
   flx_string sql = builder.build_select();
+
+  // Qualify ambiguous column names in WHERE clause with root table
+  // This prevents "column reference is ambiguous" errors when JOINs are present
+  sql = qualify_where_columns(sql, root_table);
+
   return insert_joins_into_sql(sql, joins, root_table);
 }
 
@@ -1999,7 +2026,9 @@ inline void db_repository::search_hierarchical(const db_search_criteria& criteri
   // Phase 4: Tree construction - for each root ID
   auto root_ids = id_sets[extract_table_name(model)];
   for (long long root_id : root_ids) {
-    flx_model root_model;
+    // Create typed model from factory (not generic flx_model!)
+    auto root_model_ptr = results.factory();
+    flx_model& root_model = *root_model_ptr;
     construct_tree_recursive(root_model, extract_table_name(model), root_id, all_rows);
 
     // Attach distance value if available
