@@ -13,7 +13,19 @@
 // ============================================================================
 
 static inline flx_string get_connection_string() {
-    return "host=h2993861.stratoserver.net port=5432 dbname=flucture_tests user=flucture_user password=gu9nU2OAQo97bWcZB6eWJP39kdw0gvq0";
+    const char* host = std::getenv("DB_HOST");
+    const char* port = std::getenv("DB_PORT");
+    const char* dbname = std::getenv("DB_NAME");
+    const char* user = std::getenv("DB_USER");
+    const char* password = std::getenv("DB_PASSWORD");
+
+    if (!host || !port || !dbname || !user || !password) {
+        throw std::runtime_error("Database credentials not found in environment variables. "
+                                 "Ensure .env file exists with DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD");
+    }
+
+    return flx_string("host=") + host + " port=" + port +
+           " dbname=" + dbname + " user=" + user + " password=" + password;
 }
 
 // Static connection shared by all tests (connect once, reuse everywhere)

@@ -55,6 +55,21 @@ static flx_string truncate_vectors_in_sql(const flx_string& sql) {
   return flx_string(result.c_str());
 }
 
+static flx_variant::state oid_to_variant_state(int oid) {
+  switch (oid) {
+    case 16:   return flx_variant::bool_state;    // BOOLOID
+    case 20:   return flx_variant::int_state;     // INT8OID (bigint)
+    case 21:   return flx_variant::int_state;     // INT2OID (smallint)
+    case 23:   return flx_variant::int_state;     // INT4OID (integer)
+    case 700:  return flx_variant::double_state;  // FLOAT4OID
+    case 701:  return flx_variant::double_state;  // FLOAT8OID
+    case 1700: return flx_variant::double_state;  // NUMERICOID
+    case 25:   return flx_variant::string_state;  // TEXTOID
+    case 1043: return flx_variant::string_state;  // VARCHAROID
+    default:   return flx_variant::string_state;  // Unknown types → string (safe fallback)
+  }
+}
+
 struct pg_query::impl {
   pqxx::connection* conn;
   std::unique_ptr<pqxx::work> work;
@@ -316,9 +331,11 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
         }
         row_map[column_name] = flx_variant(vec);
       }
-      // Everything else as string - flx_variant should handle conversion
       else {
-        row_map[column_name] = flx_variant(value_str);
+        int oid = field.type();
+        flx_variant::state target_state = oid_to_variant_state(oid);
+        flx_variant temp(value_str);
+        row_map[column_name] = temp.convert(target_state);
       }
     }
   }

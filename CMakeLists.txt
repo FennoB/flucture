@@ -17,6 +17,7 @@ set(FLUCTURE_CORE_SOURCES
   utils/flx_variant.cpp
   utils/flx_datetime.cpp
   utils/flx_string.cpp
+  utils/flx_env.cpp
   documents/layout/flx_layout_bounds.cpp
   documents/layout/flx_layout_text.cpp
   documents/layout/flx_layout_image.cpp
@@ -55,6 +56,7 @@ set(FLUCTURE_CORE_HEADERS
   utils/flx_model.h
   utils/flx_variant.h
   utils/flx_datetime.h
+  utils/flx_env.h
   utils/flx_lazy_ptr.h
   documents/layout/flx_layout_bounds.h
   documents/layout/flx_layout_text.h

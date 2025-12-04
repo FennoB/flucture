@@ -2602,6 +2602,33 @@ utils/flx_datetime.cpp.s:
 	$(MAKE) -f CMakeFiles/flucture_core.dir/build.make CMakeFiles/flucture_core.dir/utils/flx_datetime.cpp.s
 .PHONY : utils/flx_datetime.cpp.s
 
+utils/flx_env.o: utils/flx_env.cpp.o
+
+.PHONY : utils/flx_env.o
+
+# target to build an object file
+utils/flx_env.cpp.o:
+	$(MAKE) -f CMakeFiles/flucture_core.dir/build.make CMakeFiles/flucture_core.dir/utils/flx_env.cpp.o
+.PHONY : utils/flx_env.cpp.o
+
+utils/flx_env.i: utils/flx_env.cpp.i
+
+.PHONY : utils/flx_env.i
+
+# target to preprocess a source file
+utils/flx_env.cpp.i:
+	$(MAKE) -f CMakeFiles/flucture_core.dir/build.make CMakeFiles/flucture_core.dir/utils/flx_env.cpp.i
+.PHONY : utils/flx_env.cpp.i
+
+utils/flx_env.s: utils/flx_env.cpp.s
+
+.PHONY : utils/flx_env.s
+
+# target to generate assembly for a file
+utils/flx_env.cpp.s:
+	$(MAKE) -f CMakeFiles/flucture_core.dir/build.make CMakeFiles/flucture_core.dir/utils/flx_env.cpp.s
+.PHONY : utils/flx_env.cpp.s
+
 utils/flx_model.o: utils/flx_model.cpp.o
 
 .PHONY : utils/flx_model.o
@@ -2948,6 +2975,9 @@ help:
 	@echo "... utils/flx_datetime.o"
 	@echo "... utils/flx_datetime.i"
 	@echo "... utils/flx_datetime.s"
+	@echo "... utils/flx_env.o"
+	@echo "... utils/flx_env.i"
+	@echo "... utils/flx_env.s"
 	@echo "... utils/flx_model.o"
 	@echo "... utils/flx_model.i"
 	@echo "... utils/flx_model.s"
