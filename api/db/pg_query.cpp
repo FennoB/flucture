@@ -302,10 +302,10 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
     if (field.is_null()) {
       row_map[column_name] = flx_variant();
     } else {
-      // Try to get the value with proper type conversion
       flx_string value_str = field.c_str();
 
-      // Check for pgvector array format: [0.1,0.2,0.3,...]
+      // ONLY parse vectors specially - everything else as string
+      // Let flx_model handle type conversion based on property types
       if (value_str.starts_with("[") && value_str.ends_with("]")) {
         // Parse vector: strip brackets and split by comma
         flx_string vec_content = value_str.substr(1, value_str.length() - 2);
@@ -318,21 +318,7 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
         }
         row_map[column_name] = flx_variant(vec);
       }
-      // Try to detect numeric types by attempting conversion
-      // Check for boolean first
-      else if (value_str == "t" || value_str == "f" ||
-          value_str == "true" || value_str == "false") {
-        row_map[column_name] = flx_variant(value_str == "t" || value_str == "true");
-      }
-      // Check if it contains a decimal point - if so, it's a double
-      else if (value_str.contains(".") && value_str.is_double()) {
-        row_map[column_name] = flx_variant(value_str.to_double(0.0));
-      }
-      // Check if it's an integer
-      else if (value_str.is_integer()) {
-        row_map[column_name] = flx_variant(static_cast<long long>(value_str.to_int(0)));
-      }
-      // Otherwise it's a string
+      // Return everything else as string - flx_model converts based on property type
       else {
         row_map[column_name] = flx_variant(value_str);
       }
