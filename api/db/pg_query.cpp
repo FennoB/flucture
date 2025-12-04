@@ -10,11 +10,12 @@ struct pg_query::impl {
   std::unique_ptr<pqxx::result> result;
 };
 
-pg_query::pg_query(void* conn)
+pg_query::pg_query(void* conn, bool verbose_sql)
   : pimpl_(std::make_unique<impl>())
   , current_row_(0)
   , rows_affected_(0)
   , last_error_("")
+  , verbose_sql_(verbose_sql)
 {
   pimpl_->conn = static_cast<pqxx::connection*>(conn);
 }
@@ -56,6 +57,11 @@ bool pg_query::execute()
     pimpl_->work = std::make_unique<pqxx::work>(*pimpl_->conn);
 
     flx_string final_sql = substitute_params(sql_);
+
+    // Log SQL query if verbose mode enabled
+    if (verbose_sql_) {
+      std::cout << "[SQL] " << final_sql.c_str() << std::endl;
+    }
 
     auto res = pimpl_->work->exec(final_sql.c_str());
     pimpl_->result = std::make_unique<pqxx::result>(res);

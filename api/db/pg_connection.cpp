@@ -10,6 +10,7 @@ struct pg_connection::impl {
 pg_connection::pg_connection()
   : pimpl_(std::make_unique<impl>())
   , last_error_("")
+  , verbose_sql_(false)
 {
 }
 
@@ -60,7 +61,7 @@ std::unique_ptr<db_query> pg_connection::create_query()
     }
   }
 
-  return std::make_unique<pg_query>(static_cast<void*>(pimpl_->conn.get()));
+  return std::make_unique<pg_query>(static_cast<void*>(pimpl_->conn.get()), verbose_sql_);
 }
 
 flx_string pg_connection::get_last_error() const
@@ -104,4 +105,14 @@ bool pg_connection::reconnect()
     std::cerr << "[DB] " << last_error_.c_str() << std::endl;
     return false;
   }
+}
+
+void pg_connection::set_verbose_sql(bool verbose)
+{
+  verbose_sql_ = verbose;
+}
+
+bool pg_connection::get_verbose_sql() const
+{
+  return verbose_sql_;
 }

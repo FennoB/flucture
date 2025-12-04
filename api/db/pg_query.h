@@ -7,7 +7,7 @@
 
 class pg_query : public db_query {
 public:
-  explicit pg_query(void* conn);
+  explicit pg_query(void* conn, bool verbose_sql = false);
   ~pg_query() override;
 
   bool prepare(const flx_string& sql) override;
@@ -35,6 +35,7 @@ private:
   size_t current_row_;
   int rows_affected_;
   flx_string last_error_;
+  bool verbose_sql_;
 
   flx_string substitute_params(const flx_string& sql);
   flxv_map row_to_variant_map(size_t row_index);

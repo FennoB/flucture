@@ -19,11 +19,16 @@ public:
 
   void* get_native_connection();
 
+  // SQL query logging
+  void set_verbose_sql(bool verbose);
+  bool get_verbose_sql() const;
+
 private:
   struct impl;
   std::unique_ptr<impl> pimpl_;
   flx_string last_error_;
   flx_string connection_string_;  // Store for auto-reconnect
+  bool verbose_sql_;               // Enable SQL query logging
 
   bool reconnect();  // Internal reconnection method
 };
