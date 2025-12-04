@@ -34,13 +34,47 @@ namespace flx::llm {
     }
   }
 
+  void flx_llm_chat::register_tool_provider(std::shared_ptr<i_llm_tool_provider> provider) {
+    if (provider) {
+      tool_providers.push_back(provider);
+    }
+  }
+
   std::vector<i_llm_function*> flx_llm_chat::get_function_list_for_api() {
     std::vector<i_llm_function*> funcs;
-    funcs.reserve(available_functions.size());
+
     for(const auto& [name, func_ptr] : available_functions) {
       funcs.push_back(func_ptr.get());
     }
+
+    for(const auto& provider : tool_providers) {
+      if (provider && provider->is_available()) {
+        auto provider_tools = provider->get_available_tools();
+        funcs.insert(funcs.end(), provider_tools.begin(), provider_tools.end());
+      }
+    }
+
     return funcs;
+  }
+
+  i_llm_function* flx_llm_chat::find_function(const flx_string& name) {
+    auto it = available_functions.find(name);
+    if (it != available_functions.end()) {
+      return it->second.get();
+    }
+
+    for(const auto& provider : tool_providers) {
+      if (provider && provider->is_available()) {
+        auto tools = provider->get_available_tools();
+        for(auto* tool : tools) {
+          if (tool && tool->get_name() == name) {
+            return tool;
+          }
+        }
+      }
+    }
+
+    return nullptr;
   }
 
   bool flx_llm_chat::chat(const flx_string& user_message, flx_string& final_response, int max_tool_calls) {
@@ -95,9 +129,9 @@ namespace flx::llm {
       return;
     }
 
-    const auto it_func = available_functions.find(func_name);
-    if (it_func != available_functions.end()) {
-      flx_string res = it_func->second->call(args_map);
+    i_llm_function* func = find_function(func_name);
+    if (func) {
+      flx_string res = func->call(args_map);
       flxv_map result_message_content;
       result_message_content["role"] = "tool";
       result_message_content["content"] = res;

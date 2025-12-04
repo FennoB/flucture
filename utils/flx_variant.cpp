@@ -352,7 +352,9 @@ flx_variant flx_variant::convert(flx_variant::state to) const
     }
     else if (to == bool_state)
     {
-      if (string_value().lower() == "true" || string_value().to_int(0))
+      flx_string lower = string_value().lower();
+      // Support: "true", "t" (PostgreSQL), "1", or any non-zero number
+      if (lower == "true" || lower == "t" || string_value().to_int(0))
       {
         res = true;
       }

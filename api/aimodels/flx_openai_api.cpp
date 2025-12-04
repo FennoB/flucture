@@ -212,10 +212,82 @@ namespace flx::llm {
   }
 
   bool openai_api::embedding(const flx_string& text, flxv_vector& embedding) {
-    // Build request body
+    // Limit text length to avoid token limit (8192 tokens ≈ 6000 chars)
+    // If text too long, summarize it first
+    flx_string processed_text = text;
+    if (text.length() > 6000) {
+      std::cout << "[OpenAI] Text too long (" << text.length()
+                << " chars), summarizing first..." << std::endl;
+
+      // Create summarization request
+      flxv_map summ_request;
+      summ_request["model"] = flx_string("gpt-4o-mini");
+      summ_request["max_tokens"] = 2000;
+      summ_request["temperature"] = 0.3;
+
+      // Messages array
+      flxv_vector messages;
+
+      // System message
+      flxv_map sys_msg;
+      sys_msg["role"] = flx_string("system");
+      sys_msg["content"] = flx_string(
+        "Du extrahierst die semantische DNA von Ausschreibungsdokumenten. "
+        "Maximale Informationsdichte: Alle wichtigen Fakten, keine Füllwörter."
+      );
+      messages.push_back(flx_variant(sys_msg));
+
+      // User message
+      flxv_map user_msg;
+      user_msg["role"] = flx_string("user");
+      user_msg["content"] = flx_string(
+        "Deine Aufgabe ist es die wichtigsten Informationen aus folgendem Wust zu extrahieren. "
+        "Maximale Informationsdichte bitte:\n\n"
+      ) + text;
+      messages.push_back(flx_variant(user_msg));
+
+      summ_request["messages"] = messages;
+
+      // Make summarization request
+      flx_json summ_json(&summ_request);
+      flx_string summ_body = summ_json.create();
+
+      flx_http_request summ_req("https://api.openai.com/v1/chat/completions");
+      summ_req.set_header("Content-Type", "application/json");
+      summ_req.set_header("Authorization", "Bearer " + api_key.to_std_const());
+      summ_req.set_method("POST");
+      summ_req.set_body(summ_body.to_std());
+
+      if (summ_req.send() && summ_req.get_status_code() == 200) {
+        // Parse summarization response
+        flxv_map summ_response;
+        flx_json summ_parser(&summ_response);
+        if (summ_parser.parse(summ_req.get_response_body())) {
+          if (summ_response.count("choices") && summ_response["choices"].is_vector()) {
+            flxv_vector& choices = summ_response["choices"].to_vector();
+            if (!choices.empty() && choices[0].is_map()) {
+              flxv_map& choice = choices[0].to_map();
+              if (choice.count("message") && choice["message"].is_map()) {
+                flxv_map& msg = choice["message"].to_map();
+                if (msg.count("content")) {
+                  processed_text = msg["content"].to_string();
+                  std::cout << "[OpenAI] Summarized to " << processed_text.length()
+                            << " chars" << std::endl;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        std::cerr << "[OpenAI] Summarization failed, using first 6000 chars as fallback" << std::endl;
+        processed_text = text.substr(0, 6000);
+      }
+    }
+
+    // Build embedding request body
     flxv_map request_body;
     request_body["model"] = flx_string("text-embedding-3-large");
-    request_body["input"] = text;
+    request_body["input"] = processed_text;
 
     // Convert to JSON
     flx_json json_handler(&request_body);

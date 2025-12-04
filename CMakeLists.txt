@@ -144,8 +144,15 @@ if(FLUCTURE_ENABLE_MCP)
 
     # Add MCP source files to the core library
     message(STATUS "Adding MCP source files to flucture_core")
-    list(APPEND FLUCTURE_CORE_SOURCES api/mcp/flx_mcp_adapter.cpp)
-    list(APPEND FLUCTURE_CORE_HEADERS api/mcp/flx_mcp_adapter.h)
+    list(APPEND FLUCTURE_CORE_SOURCES
+      api/mcp/flx_mcp_adapter.cpp
+      aiprocesses/chat/flx_mcp_tool_provider.cpp
+    )
+    list(APPEND FLUCTURE_CORE_HEADERS
+      api/mcp/flx_mcp_adapter.h
+      aiprocesses/chat/flx_llm_tool_provider.h
+      aiprocesses/chat/flx_mcp_tool_provider.h
+    )
   else()
     message(WARNING "cpp-mcp not found - MCP support disabled. Set MCP_ROOT to cpp-mcp installation directory.")
     set(MCP_FOUND FALSE)

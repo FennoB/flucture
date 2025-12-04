@@ -304,10 +304,8 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
     } else {
       flx_string value_str = field.c_str();
 
-      // ONLY parse vectors specially - everything else as string
-      // Let flx_model handle type conversion based on property types
+      // Parse vectors: PostgreSQL array format [1.2,3.4,5.6]
       if (value_str.starts_with("[") && value_str.ends_with("]")) {
-        // Parse vector: strip brackets and split by comma
         flx_string vec_content = value_str.substr(1, value_str.length() - 2);
         auto parts = vec_content.split(',');
 
@@ -318,7 +316,7 @@ flxv_map pg_query::row_to_variant_map(size_t row_index)
         }
         row_map[column_name] = flx_variant(vec);
       }
-      // Return everything else as string - flx_model converts based on property type
+      // Everything else as string - flx_variant should handle conversion
       else {
         row_map[column_name] = flx_variant(value_str);
       }
