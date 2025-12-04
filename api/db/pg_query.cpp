@@ -4,6 +4,57 @@
 #include <algorithm>
 #include <iostream>
 
+// Helper function to truncate long vector arrays in SQL for logging
+static flx_string truncate_vectors_in_sql(const flx_string& sql) {
+  std::string result = sql.c_str();
+
+  size_t pos = 0;
+  while ((pos = result.find("'[", pos)) != std::string::npos) {
+    size_t start = pos + 2;  // Skip "'["
+    size_t end = result.find("]'", start);
+
+    if (end == std::string::npos) {
+      pos = start;
+      continue;
+    }
+
+    size_t length = end - start;
+
+    // If vector array is long (> 100 chars), truncate it
+    if (length > 100) {
+      std::string vector_content = result.substr(start, length);
+
+      // Count commas to estimate number of values
+      size_t comma_count = 0;
+      for (char c : vector_content) {
+        if (c == ',') comma_count++;
+      }
+      size_t total_values = comma_count + 1;
+
+      // Keep first 2 values
+      size_t first_comma = vector_content.find(',');
+      if (first_comma != std::string::npos) {
+        size_t second_comma = vector_content.find(',', first_comma + 1);
+
+        if (second_comma != std::string::npos) {
+          std::string truncated = vector_content.substr(0, second_comma);
+          std::string replacement = "'[" + truncated + ", ... (" +
+                                   std::to_string(total_values - 2) + " more)]'";
+
+          // Replace the full vector with truncated version
+          result = result.substr(0, pos) + replacement + result.substr(end + 2);
+          pos += replacement.length();
+          continue;
+        }
+      }
+    }
+
+    pos = end + 2;
+  }
+
+  return flx_string(result.c_str());
+}
+
 struct pg_query::impl {
   pqxx::connection* conn;
   std::unique_ptr<pqxx::work> work;
@@ -58,9 +109,10 @@ bool pg_query::execute()
 
     flx_string final_sql = substitute_params(sql_);
 
-    // Log SQL query if verbose mode enabled
+    // Log SQL query if verbose mode enabled (with vector truncation)
     if (verbose_sql_) {
-      std::cout << "[SQL] " << final_sql.c_str() << std::endl;
+      flx_string truncated_sql = truncate_vectors_in_sql(final_sql);
+      std::cout << "[SQL] " << truncated_sql.c_str() << std::endl;
     }
 
     auto res = pimpl_->work->exec(final_sql.c_str());
