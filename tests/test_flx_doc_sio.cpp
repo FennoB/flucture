@@ -3,7 +3,7 @@
 // Placeholder tests for future doc_sio development
 // These tests will be implemented when the doc_sio layout tree system is developed
 
-SCENARIO("doc_sio layout tree system - placeholder") {
+SCENARIO("doc_sio layout tree system - placeholder", "[unit][pure]") {
     GIVEN("Future doc_sio development") {
         WHEN("Tests are run") {
             THEN("This serves as a placeholder for future layout tree tests") {

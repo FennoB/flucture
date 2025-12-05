@@ -10,6 +10,9 @@ cd build && cmake .. && make
 # Run all tests
 ./flucture_tests
 
+# Ultra-fast pure unit tests (<50ms - perfect for TDD)
+./flucture_tests "[unit][pure]"
+
 # Run fast unit tests only (5 seconds)
 ./flucture_tests "~[db]~[slow]~[integration]~[ai]"
 
@@ -38,11 +41,37 @@ cd build && cmake .. && make
 - **Test examples** → `tests/test_*.cpp`, `tests/db_repository/`
 - **Build configuration** → `CMakeLists.txt`
 
-### Key Documentation Files
-- **This file (CLAUDE.md)**: Architecture, guidelines, API reference
-- **tests/README.md**: Complete test system documentation
-- **DEBUG_PH_WERT_PROBLEM.md**: XObject font-cache debugging case study (historical)
-- **CHANGELOG.md**: Version history and breaking changes
+### Documentation Map
+
+**Core Documentation:**
+- **[CLAUDE.md](CLAUDE.md)** - This file (project index, quick reference)
+- **[tests/README.md](tests/README.md)** - Testing system (tags, filters, best practices)
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and breaking changes
+
+**Architecture & Internals:**
+- **[flx_model System](docs/flx_model_system.md)** - Property system, lazy loading, const-correctness
+- **[Testing Guidelines](docs/TESTING_GUIDELINES.md)** - BDD patterns, contract testing, assertion rules
+
+**Migration Guides:**
+- **[Database Metadata](DB_REPOSITORY_METADATA_MIGRATION.md)** - Property metadata system changes
+- **[XML Parsing](docs/XML_MIGRATION_GUIDE.md)** - String-based parsing migration
+
+**Features:**
+- **[QR Code Generator](documents/qr/README.md)** - Advanced QR generation with styling
+- **[MCP Integration](docs/MCP_QUICK_START.md)** - Model Context Protocol setup
+  - [MCP Analysis](docs/FLUCTURE_MCP_INTEGRATION_ANALYSIS.md) - Framework analysis
+  - [MCP Status](docs/MCP_INTEGRATION_STATUS.md) - Integration progress
+
+**Debugging Case Studies:**
+- **[XObject Font Corruption](DEBUG_PH_WERT_PROBLEM.md)** - Per-page font cache fix (Oct 2025)
+- **[Error Handling Concept](docs/ERROR_HANDLING_CONCEPT.md)** - Exception-based design (archived)
+
+**Development Guidelines:**
+- See `~/guidelines_claude/` for universal coding standards:
+  - `code-quality-standards.md` - SOLID, clean code, function length
+  - `testing-principles.md` - Contract testing, BDD structure
+  - `debugging-methodology.md` - Systematic debugging approach
+  - `documentation-guidelines.md` - Documentation structure rules
 
 ---
 
@@ -397,12 +426,14 @@ BUILD_FLUCTURE_TESTS ON
 ```bash
 cd build
 
+# Ultra-fast pure unit tests (<50ms - perfect for TDD)
+./flucture_tests "[unit][pure]"
+
 # Fast unit tests (5 sec)
 ./flucture_tests "~[db]~[slow]~[integration]~[ai]"
 
-# Database tests
-export DB_HOST=localhost DB_PORT=5432 DB_NAME=test_db DB_USER=test DB_PASS=test
-./flucture_tests "[db]~[slow]"
+# Database unit tests (no .env needed - auto-loaded)
+./flucture_tests "[unit][db]"
 
 # AI evaluation tests
 export OPENAI_API_KEY="sk-..."
@@ -412,8 +443,15 @@ export OPENAI_API_KEY="sk-..."
 ./flucture_tests "~[disabled]"
 ```
 
+**Environment Setup:**
+- ✅ **Database credentials**: Automatically loaded from `.env` file in project root
+- ✅ **No manual export needed**: `test_main.cpp` loads `.env` before tests run
+- ⚠️ **OpenAI API key**: Still requires manual export (not auto-loaded for security)
+
 **Test Tags:**
-- `[unit]` - Fast (<1s), no external dependencies
+- `[unit]` - Unit tests (focused on single components)
+  - `[unit][pure]` - NO I/O (datetime, string, model logic) - <50ms total
+  - `[unit][db]` - Database unit tests (connection, repository, queries)
 - `[db]` - Requires PostgreSQL
 - `[ai]`, `[llm]` - Requires OpenAI API
 - `[slow]` - Takes >5 seconds
@@ -666,6 +704,11 @@ try {
 - `get_last_error()` still exists but is legacy (unused in exception-based code)
 - All CRUD methods throw exceptions instead of returning false
 - Breaking change: Code using bool returns must migrate to try-catch
+
+**PostgreSQL Type Mapping:**
+- Uses OID (Object Identifier) system for correct type conversion
+- Prevents false positives (e.g., VARCHAR 't' → string, not boolean)
+- Implementation: `api/db/pg_query.cpp:56` (oid_to_variant_state function)
 
 ### PoDoFo PDF API
 

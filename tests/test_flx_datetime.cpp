@@ -1,7 +1,7 @@
 #include <catch2/catch_all.hpp>
 #include "utils/flx_datetime.h"
 
-SCENARIO("flx_datetime basic construction and conversion") {
+SCENARIO("flx_datetime basic construction and conversion", "[unit][pure]") {
     GIVEN("a datetime from components") {
         flx_datetime dt(2023, 12, 15, 14, 30, 45, 123);
         
@@ -45,7 +45,7 @@ SCENARIO("flx_datetime basic construction and conversion") {
     }
 }
 
-SCENARIO("flx_datetime implicit string conversion") {
+SCENARIO("flx_datetime implicit string conversion", "[unit][pure]") {
     GIVEN("a datetime object") {
         flx_datetime dt(2023, 6, 1, 12, 0, 0, 0);
         
@@ -68,7 +68,7 @@ SCENARIO("flx_datetime implicit string conversion") {
     }
 }
 
-SCENARIO("flx_duration functionality") {
+SCENARIO("flx_duration functionality", "[unit][pure]") {
     GIVEN("duration objects") {
         auto dur1 = flx_duration::hours(2);
         auto dur2 = flx_duration::minutes(30);
@@ -85,7 +85,7 @@ SCENARIO("flx_duration functionality") {
     }
 }
 
-SCENARIO("flx_datetime arithmetic") {
+SCENARIO("flx_datetime arithmetic", "[unit][pure]") {
     GIVEN("a base datetime") {
         flx_datetime dt(2023, 6, 15, 12, 0, 0, 0);
         
@@ -115,7 +115,7 @@ SCENARIO("flx_datetime arithmetic") {
     }
 }
 
-SCENARIO("flx_datetime formatting") {
+SCENARIO("flx_datetime formatting", "[unit][pure]") {
     GIVEN("a datetime") {
         flx_datetime dt(2023, 3, 5, 9, 15, 30, 0);
         
@@ -138,7 +138,7 @@ SCENARIO("flx_datetime formatting") {
     }
 }
 
-SCENARIO("flx_datetime boundary operations") {
+SCENARIO("flx_datetime boundary operations", "[unit][pure]") {
     GIVEN("a datetime in the middle of week/month/year") {
         flx_datetime dt(2023, 6, 15, 14, 30, 45, 0);
         
@@ -168,7 +168,7 @@ SCENARIO("flx_datetime boundary operations") {
     }
 }
 
-SCENARIO("flx_datetime validation and error handling") {
+SCENARIO("flx_datetime validation and error handling", "[unit][pure]") {
     GIVEN("invalid date components") {
         WHEN("constructing with invalid date") {
             THEN("exception is thrown") {
@@ -200,7 +200,7 @@ SCENARIO("flx_datetime validation and error handling") {
     }
 }
 
-SCENARIO("flx_datetime utility functions") {
+SCENARIO("flx_datetime utility functions", "[unit][pure]") {
     GIVEN("datetime objects for comparison") {
         flx_datetime dt1(2023, 6, 15, 12, 0, 0, 0);
         flx_datetime dt2(2023, 6, 15, 18, 0, 0, 0);
@@ -237,7 +237,7 @@ SCENARIO("flx_datetime utility functions") {
     }
 }
 
-SCENARIO("flx_string enhanced functionality") {
+SCENARIO("flx_string enhanced functionality", "[unit][pure]") {
     GIVEN("strings for testing") {
         flx_string text = "  Hello World  ";
         flx_string number = "123.45";

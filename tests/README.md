@@ -3,8 +3,11 @@
 ## Quick Start
 
 ```bash
-# Run all fast tests (no DB, no external APIs)
+# Ultra-fast pure unit tests (<50ms - perfect for TDD)
 cd build
+./flucture_tests "[unit][pure]"
+
+# Run all fast tests (no DB, no external APIs)
 ./flucture_tests "~[db]~[slow]~[integration]~[ai]~[llm]"
 
 # Run only unit tests
@@ -23,7 +26,15 @@ cd build
 ## Test Tags
 
 ### Speed & Isolation
-- `[unit]` - Fast unit tests with no external dependencies
+- `[unit]` - Unit tests (fast, focused on single components)
+  - `[unit][pure]` - **Pure unit tests** with NO I/O (datetime, string utils, model logic)
+    - Run in <50ms total - perfect for TDD red-green-refactor cycles
+    - No database, no filesystem, no network
+    - Test pure logic and data transformations
+  - `[unit][db]` - **Database unit tests** that require PostgreSQL
+    - Focus on single component (repository, connection, query)
+    - Require database connection but are still fast (<1s each)
+    - Use test database fixtures
 - `[integration]` - Tests requiring external services (DB, APIs)
 - `[slow]` - Tests taking >5 seconds
 - `[disabled]` - Currently disabled tests (broken or WIP)
@@ -70,23 +81,41 @@ export DB_HOST=... DB_PORT=... DB_NAME=... DB_USER=... DB_PASS=...
 
 ## Common Test Scenarios
 
-### 1. Quick Development Cycle (no external deps)
+### 1. Ultra-Fast TDD Cycle (pure unit tests only)
+```bash
+./flucture_tests "[unit][pure]"
+```
+**Runs**: Pure logic tests - datetime, string utils, model operations (no I/O)
+**Time**: <50ms (instant feedback for TDD red-green-refactor)
+**Use when**: Writing pure business logic, utility functions, data transformations
+
+### 2. Quick Development Cycle (no external deps)
 ```bash
 ./flucture_tests "~[db]~[slow]~[integration]~[ai]~[llm]~[disabled]"
 ```
 **Runs**: Core model tests, datetime, string utilities, basic PDF operations
 **Time**: ~5 seconds
 
-### 2. Database Tests Only
+### 3. Database Unit Tests Only
+```bash
+source ../.env
+export DB_HOST=localhost DB_PORT=5432 DB_NAME=test_db DB_USER=test DB_PASS=test
+./flucture_tests "[unit][db]"
+```
+**Runs**: Database unit tests - connection, repository CRUD, query builder
+**Time**: ~10 seconds
+**Use when**: Testing database integration, ORM behavior, query generation
+
+### 4. All Database Tests (including slow)
 ```bash
 source ../.env
 export DB_HOST=localhost DB_PORT=5432 DB_NAME=test_db DB_USER=test DB_PASS=test
 ./flucture_tests "[db]~[slow]"
 ```
-**Runs**: Repository CRUD, hierarchical operations, query builder
+**Runs**: All database tests including hierarchical operations
 **Time**: ~30 seconds
 
-### 3. All Fast Tests (including DB)
+### 5. All Fast Tests (including DB)
 ```bash
 source ../.env && export DB_HOST=... DB_PORT=... DB_NAME=... DB_USER=... DB_PASS=...
 ./flucture_tests "~[slow]~[disabled]"
@@ -94,7 +123,7 @@ source ../.env && export DB_HOST=... DB_PORT=... DB_NAME=... DB_USER=... DB_PASS
 **Runs**: Everything except slow integration tests
 **Time**: ~1 minute
 
-### 4. AI/LLM Tests
+### 6. AI/LLM Tests
 ```bash
 export OPENAI_API_KEY="sk-..."
 ./flucture_tests "[ai]"
@@ -102,7 +131,7 @@ export OPENAI_API_KEY="sk-..."
 **Runs**: Layout evaluator, embedding generation
 **Time**: ~20 seconds (depends on API)
 
-### 5. Complete Test Suite
+### 7. Complete Test Suite
 ```bash
 source ../.env
 export DB_HOST=... DB_PORT=... DB_NAME=... DB_USER=... DB_PASS=...
@@ -191,17 +220,43 @@ SCENARIO("Feature description") {
 
 ### Tag Your Tests
 ```cpp
-SCENARIO("My test", "[unit]") { ... }              // Fast, no deps
-SCENARIO("My test", "[db][slow]") { ... }          // Needs DB, >5sec
-SCENARIO("My test", "[integration][ai]") { ... }   // Needs OpenAI API
+// Pure unit test - NO I/O, instant feedback
+SCENARIO("String utility test", "[unit][pure]") { ... }
+
+// Database unit test - requires PostgreSQL
+SCENARIO("Repository CRUD test", "[unit][db]") { ... }
+
+// Slow test - takes >5 seconds
+SCENARIO("Large dataset test", "[db][slow]") { ... }
+
+// Integration test - requires external API
+SCENARIO("OpenAI integration", "[integration][ai]") { ... }
 ```
 
 ### Best Practices
-- Use `[unit]` for tests that run in <1 second with no external deps
+
+**Choosing the right tags:**
+- Use `[unit][pure]` for tests with NO I/O:
+  - Pure logic (calculations, transformations)
+  - Data structure operations (string, datetime, model)
+  - No file system, no database, no network
+  - Should run in <1ms each
+
+- Use `[unit][db]` for database unit tests:
+  - Testing single database component (connection, repository, query)
+  - Requires PostgreSQL connection
+  - Fast (<1s each) with test fixtures
+  - Focused on database integration behavior
+
 - Use `[slow]` for anything taking >5 seconds
 - Use `[disabled]` to temporarily skip broken tests (with TODO comment)
 - Add `[integration]` for anything touching external services
 - Document required ENV variables in test comments
+
+**Why this matters:**
+- `[unit][pure]` tests run in <50ms total → instant TDD feedback
+- `[unit][db]` tests run in ~10s → focused database testing
+- Clear separation enables optimal development workflow
 
 ## Test File Organization
 

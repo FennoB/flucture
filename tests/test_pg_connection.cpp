@@ -2,7 +2,7 @@
 #include <api/db/pg_connection.h>
 #include <api/db/pg_query.h>
 
-SCENARIO("pg_connection basic operations") {
+SCENARIO("pg_connection basic operations", "[unit][db]") {
   GIVEN("A PostgreSQL connection") {
     pg_connection conn;
 
@@ -42,7 +42,7 @@ SCENARIO("pg_connection basic operations") {
   }
 }
 
-SCENARIO("pg_connection query creation") {
+SCENARIO("pg_connection query creation", "[unit][db]") {
   GIVEN("A connected PostgreSQL connection") {
     pg_connection conn;
     flx_string conn_str = "host=h2993861.stratoserver.net port=5432 dbname=flucture_tests user=flucture_user password=gu9nU2OAQo97bWcZB6eWJP39kdw0gvq0";
@@ -73,7 +73,7 @@ SCENARIO("pg_connection query creation") {
   }
 }
 
-SCENARIO("pg_connection reconnection") {
+SCENARIO("pg_connection reconnection", "[unit][db]") {
   GIVEN("A PostgreSQL connection") {
     pg_connection conn;
     flx_string conn_str = "host=h2993861.stratoserver.net port=5432 dbname=flucture_tests user=flucture_user password=gu9nU2OAQo97bWcZB6eWJP39kdw0gvq0";
