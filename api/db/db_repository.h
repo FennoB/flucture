@@ -61,6 +61,7 @@ public:
     flx_variant::state type;
     bool is_unique = false;            // UNIQUE constraint
     bool is_not_null = false;          // NOT NULL constraint
+    flx_string default_value;          // DEFAULT value (SQL expression)
   };
 
   struct relation_metadata {
@@ -526,6 +527,11 @@ inline void db_repository::create_table(flx_model& model)
     if (field.is_unique) {
       sql += " UNIQUE";
     }
+
+    // Add DEFAULT value if specified
+    if (!field.default_value.empty()) {
+      sql += " DEFAULT " + field.default_value;
+    }
   }
 
   sql += "\n)";
@@ -795,6 +801,11 @@ inline std::vector<db_repository::field_metadata> db_repository::scan_fields(con
     // Check for NOT NULL constraint
     field.is_not_null = (meta.find("not_null") != meta.end() &&
                          meta.at("not_null").string_value() == "true");
+
+    // Check for DEFAULT value
+    if (meta.find("default") != meta.end()) {
+      field.default_value = meta.at("default").string_value();
+    }
 
     // Get type from property definition
     field.type = prop->get_variant_type();
@@ -2081,6 +2092,11 @@ inline void db_repository::migrate_table(flx_model& model)
     flx_string sql_type = get_sql_type_from_state(field.type, field.column_name);
     flx_string alter_sql = "ALTER TABLE " + extract_table_name(model) + " ADD COLUMN " + field.column_name + " " + sql_type;
 
+    // Add DEFAULT value if specified (important for existing rows!)
+    if (!field.default_value.empty()) {
+      alter_sql += " DEFAULT " + field.default_value;
+    }
+
     auto query = connection_->create_query();
     if (!query->prepare(alter_sql)) {
       throw db_prepare_error("Failed to prepare ALTER TABLE", alter_sql, query->get_last_error());
@@ -2211,6 +2227,11 @@ inline void db_repository::ensure_child_table_from_model(flx_model* child_model)
     // Add UNIQUE constraint if specified (skip for primary key)
     if (!field.is_primary_key && field.is_unique) {
       create_sql += " UNIQUE";
+    }
+
+    // Add DEFAULT value if specified (skip for primary key)
+    if (!field.is_primary_key && !field.default_value.empty()) {
+      create_sql += " DEFAULT " + field.default_value;
     }
   }
 
