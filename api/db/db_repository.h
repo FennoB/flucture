@@ -61,6 +61,7 @@ public:
     flx_variant::state type;
     bool is_unique = false;            // UNIQUE constraint
     bool is_not_null = false;          // NOT NULL constraint
+    bool is_index = false;             // Regular INDEX (non-unique)
     flx_string default_value;          // DEFAULT value (SQL expression)
   };
 
@@ -564,6 +565,23 @@ inline void db_repository::create_table(flx_model& model)
     }
   }
 
+  // Create regular indexes (non-unique) for fields marked with {"index", true}
+  for (const auto& field : fields) {
+    if (field.is_index && !field.is_unique && !field.is_primary_key) {
+      flx_string index_name = "idx_" + table_name + "_" + field.column_name;
+      flx_string index_sql = "CREATE INDEX IF NOT EXISTS " + index_name +
+                             " ON " + table_name + " (" + field.column_name + ")";
+
+      auto idx_query = connection_->create_query();
+      if (!idx_query->prepare(index_sql)) {
+        // Index creation can fail - not critical
+        continue;
+      }
+
+      idx_query->execute();  // Ignore errors - index creation is best-effort
+    }
+  }
+
   // Ensure pgvector extension exists if model has semantic properties
   if (has_semantic_properties(model)) {
     ensure_pgvector_extension();
@@ -801,6 +819,10 @@ inline std::vector<db_repository::field_metadata> db_repository::scan_fields(con
     // Check for NOT NULL constraint
     field.is_not_null = (meta.find("not_null") != meta.end() &&
                          meta.at("not_null").string_value() == "true");
+
+    // Check for regular INDEX (non-unique)
+    field.is_index = (meta.find("index") != meta.end() &&
+                      meta.at("index").string_value() == "true");
 
     // Check for DEFAULT value
     if (meta.find("default") != meta.end()) {
@@ -2106,6 +2128,24 @@ inline void db_repository::migrate_table(flx_model& model)
       throw db_query_error("Failed to add column " + field.column_name, alter_sql, query->get_last_error());
     }
   }
+
+  // Create indexes for newly added columns marked with {"index", true}
+  flx_string table_name = extract_table_name(model);
+  for (const auto& field : missing_cols) {
+    if (field.is_index && !field.is_unique && !field.is_primary_key) {
+      flx_string index_name = "idx_" + table_name + "_" + field.column_name;
+      flx_string index_sql = "CREATE INDEX IF NOT EXISTS " + index_name +
+                             " ON " + table_name + " (" + field.column_name + ")";
+
+      auto idx_query = connection_->create_query();
+      if (!idx_query->prepare(index_sql)) {
+        // Index creation can fail - not critical
+        continue;
+      }
+
+      idx_query->execute();  // Ignore errors - index creation is best-effort
+    }
+  }
 }
 
 
@@ -2267,6 +2307,23 @@ inline void db_repository::ensure_child_table_from_model(flx_model* child_model)
         // Ignore if constraint already exists
         // std::cerr << "[ensure_child_table] FK constraint might exist: " << fk_query->get_last_error().c_str() << std::endl;
       }
+    }
+  }
+
+  // Create regular indexes (non-unique) for child table fields marked with {"index", true}
+  for (const auto& field : child_fields) {
+    if (field.is_index && !field.is_unique && !field.is_primary_key) {
+      flx_string index_name = "idx_" + child_table_name + "_" + field.column_name;
+      flx_string index_sql = "CREATE INDEX IF NOT EXISTS " + index_name +
+                             " ON " + child_table_name + " (" + field.column_name + ")";
+
+      auto idx_query = connection_->create_query();
+      if (!idx_query->prepare(index_sql)) {
+        // Index creation can fail - not critical
+        continue;
+      }
+
+      idx_query->execute();  // Ignore errors - index creation is best-effort
     }
   }
 
