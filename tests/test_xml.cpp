@@ -439,3 +439,157 @@ SCENARIO("flx_xml namespace handling") {
     }
   }
 }
+
+SCENARIO("flx_xml multi-path support with | separator", "[unit][pure]") {
+  GIVEN("An flxv_map with XML data parsed") {
+    flxv_map test_map;
+    flx_xml xml(&test_map);
+
+    WHEN("Parsing XML with multiple possible structures") {
+      // DOE-style XML with ContractingParty
+      flx_string doe_xml = R"(
+        <ContractNotice>
+          <ContractingParty>
+            <Party>
+              <PartyName>
+                <Name>Deutsches Zentrum für Migrationsforschung</Name>
+              </PartyName>
+            </Party>
+          </ContractingParty>
+        </ContractNotice>
+      )";
+      bool parsed = xml.parse(doe_xml);
+
+      THEN("Should be able to read with multi-path fallback") {
+        REQUIRE(parsed == true);
+
+        // Try TED path first (doesn't exist), then DOE path (exists)
+        const flx_variant* result = xml.read_path(
+          "ContractNotice/UBLExtensions/Organizations/Organization[]|ContractNotice/ContractingParty/Party"
+        );
+
+        REQUIRE(result != nullptr);
+        REQUIRE(result->in_state() == flx_variant::map_state);
+
+        const flxv_map& party = result->map_value();
+        REQUIRE(party.find("PartyName") != party.end());
+
+        const flxv_map& party_name = party.at("PartyName").map_value();
+        const flxv_map& name = party_name.at("Name").map_value();
+        REQUIRE(name.at("#text").string_value() == "Deutsches Zentrum für Migrationsforschung");
+      }
+    }
+
+    WHEN("Using multi-path where first path succeeds") {
+      flx_string xml_str = R"(
+        <root>
+          <primary>
+            <value>Found in primary</value>
+          </primary>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should return first matching path") {
+        const flx_variant* result = xml.read_path("root/primary/value|root/secondary/value");
+
+        REQUIRE(result != nullptr);
+        const flxv_map& value_map = result->map_value();
+        REQUIRE(value_map.at("#text").string_value() == "Found in primary");
+      }
+    }
+
+    WHEN("Using multi-path where second path succeeds") {
+      flx_string xml_str = R"(
+        <root>
+          <secondary>
+            <value>Found in secondary</value>
+          </secondary>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should fallback to second path") {
+        const flx_variant* result = xml.read_path("root/primary/value|root/secondary/value");
+
+        REQUIRE(result != nullptr);
+        const flxv_map& value_map = result->map_value();
+        REQUIRE(value_map.at("#text").string_value() == "Found in secondary");
+      }
+    }
+
+    WHEN("Using multi-path where no paths exist") {
+      flx_string xml_str = R"(
+        <root>
+          <other>
+            <value>Not matched</value>
+          </other>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should return nullptr") {
+        const flx_variant* result = xml.read_path("root/primary/value|root/secondary/value");
+
+        REQUIRE(result == nullptr);
+      }
+    }
+
+    WHEN("Using multi-path with three alternatives") {
+      flx_string xml_str = R"(
+        <root>
+          <third>
+            <value>Found in third</value>
+          </third>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should check all paths in order") {
+        const flx_variant* result = xml.read_path("root/first/value|root/second/value|root/third/value");
+
+        REQUIRE(result != nullptr);
+        const flxv_map& value_map = result->map_value();
+        REQUIRE(value_map.at("#text").string_value() == "Found in third");
+      }
+    }
+
+    WHEN("Using multi-path with whitespace around separator") {
+      flx_string xml_str = R"(
+        <root>
+          <target>
+            <value>Found</value>
+          </target>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should handle whitespace correctly") {
+        const flx_variant* result = xml.read_path("root/nonexistent | root/target/value | root/other");
+
+        REQUIRE(result != nullptr);
+        const flxv_map& value_map = result->map_value();
+        REQUIRE(value_map.at("#text").string_value() == "Found");
+      }
+    }
+
+    WHEN("Using single path (backward compatibility)") {
+      flx_string xml_str = R"(
+        <root>
+          <item>
+            <name>Single Path Test</name>
+          </item>
+        </root>
+      )";
+      xml.parse(xml_str);
+
+      THEN("Should work exactly as before") {
+        const flx_variant* result = xml.read_path("root/item/name");
+
+        REQUIRE(result != nullptr);
+        const flxv_map& name_map = result->map_value();
+        REQUIRE(name_map.at("#text").string_value() == "Single Path Test");
+      }
+    }
+  }
+}

@@ -35,8 +35,11 @@ public:
   /**
    * @brief Liest einen Wert an einem absoluten Pfad im XML.
    * @param path Absoluter Pfad z.B. "team/member[0]/name" oder "team/member[]"
-   * @return Pointer auf flx_variant oder nullptr wenn Pfad nicht existiert
+   *             Unterstützt auch mehrere alternative Pfade getrennt durch "|"
+   *             z.B. "UBLExtensions/Organizations/Organization[]|ContractingParty/Party"
+   * @return Pointer auf flx_variant oder nullptr wenn kein Pfad existiert
    * @note Unterstützt Index-Notation [0], [1] für Array-Zugriff
+   * @note Bei mehreren Pfaden: Gibt ersten erfolgreichen Pfad zurück (left-to-right)
    */
   const flx_variant* read_path(const flx_string& path) const;
 

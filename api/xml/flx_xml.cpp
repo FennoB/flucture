@@ -270,6 +270,20 @@ const flx_variant* flx_xml::read_path(const flx_string& path) const {
     return nullptr;
   }
 
+  // Multi-path support: Try multiple paths separated by "|"
+  // Example: "UBLExtensions/Organizations/Organization[]|ContractingParty/Party"
+  if (path.contains("|")) {
+    std::vector<flx_string> alternative_paths = path.split("|");
+    for (const auto& alt_path : alternative_paths) {
+      const flx_variant* result = read_path(alt_path.trim());
+      if (result != nullptr) {
+        return result;  // Return first successful path
+      }
+    }
+    return nullptr;  // None of the paths succeeded
+  }
+
+  // Single path logic (original implementation)
   std::vector<flx_string> parts = path.split("/");
   const flx_variant* current = nullptr;
 
