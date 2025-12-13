@@ -263,7 +263,7 @@ private:
   bool try_read_property(flx_xml& xml, const flx_string& cpp_name,
                          const flx_string& full_path);
   void read_primitive_property(const flx_string& cpp_name, const flx_variant* value);
-  void read_list_property(flx_xml& xml, const flx_string& cpp_name,
+  bool read_list_property(flx_xml& xml, const flx_string& cpp_name,
                           flx_list* list_ptr, const flx_string& full_path);
 
 public:

@@ -245,12 +245,12 @@ void flx_model::read_primitive_property(const flx_string& cpp_name, const flx_va
   }
 }
 
-void flx_model::read_list_property(flx_xml& xml, const flx_string& cpp_name,
+bool flx_model::read_list_property(flx_xml& xml, const flx_string& cpp_name,
                                     flx_list* list_ptr, const flx_string& full_path)
 {
   flx_string path_no_placeholder = flx_xml::remove_first_placeholder(full_path);
   const flx_variant* list_data = xml.read_path(path_no_placeholder);
-  if (!list_data) return;
+  if (!list_data) return false;
 
   if (list_data->in_state() == flx_variant::vector_state) {
     const flxv_vector& vec = list_data->vector_value();
@@ -259,27 +259,31 @@ void flx_model::read_list_property(flx_xml& xml, const flx_string& cpp_name,
       flx_string element_path = flx_xml::replace_first_placeholder(full_path, i);
       list_ptr->back().read_xml(xml, element_path);
     }
+    return true;
   } else if (list_data->in_state() == flx_variant::map_state) {
     list_ptr->add_element();
     list_ptr->back().read_xml(xml, path_no_placeholder);
+    return true;
   }
+
+  return false;
 }
 
 bool flx_model::try_read_property(flx_xml& xml, const flx_string& cpp_name,
                                    const flx_string& full_path)
 {
+  // Check if this is a model list first (before trying to read)
+  if (model_lists.find(cpp_name) != model_lists.end()) {
+    return read_list_property(xml, cpp_name, model_lists[cpp_name], full_path);
+  }
+
+  // For non-lists, try to read the value
   const flx_variant* value = xml.read_path(full_path);
   if (!value) return false;
 
   // Child model?
   if (children.find(cpp_name) != children.end()) {
     children[cpp_name]->read_xml(xml, full_path);
-    return true;
-  }
-
-  // Model list?
-  if (model_lists.find(cpp_name) != model_lists.end()) {
-    read_list_property(xml, cpp_name, model_lists[cpp_name], full_path);
     return true;
   }
 
