@@ -230,117 +230,93 @@ void flx_model::read_row(const flxv_map& row)
   }
 }
 
-void flx_model::read_xml_properties(flx_xml& xml, const flx_string& base_path)
+void flx_model::read_primitive_property(const flx_string& cpp_name, const flx_variant* value)
 {
-  for (const auto& prop_pair : props) {
-    flx_property_i* prop = prop_pair.second;
-    const flxv_map& meta = prop->get_meta();
-
-    if (meta.find("xml_path") != meta.end()) {
-      flx_string xml_path = meta.at("xml_path").string_value();
-      flx_string full_path = base_path.empty() ? xml_path : base_path + "/" + xml_path;
-
-      const flx_variant* value = xml.read_path(full_path);
-      if (value) {
-        const flx_string& cpp_name = prop_pair.first;
-
-        // Auto-extract #text for basic type properties when XML path points to a map
-        // This handles elements that sometimes have attributes (map) and sometimes don't (string)
-        // Basic properties (flxp_string, flxp_int, etc.) need the #text value
-        // Nested models (flxp_model) need the full map
-        if (value->in_state() == flx_variant::map_state) {
-          const flxv_map& value_map = value->map_value();
-
-          // If map contains #text, prefer that for assignment
-          // This automatically works for basic properties (string, int, double, bool, datetime)
-          // and is ignored for nested models/lists which expect maps
-          if (value_map.find("#text") != value_map.end()) {
-            (**this)[cpp_name] = value_map.at("#text");
-          } else {
-            // No #text - assign the map as-is (for nested models)
-            (**this)[cpp_name] = *value;
-          }
-        } else {
-          // Not a map - assign directly
-          (**this)[cpp_name] = *value;
-        }
-      }
+  // Auto-extract #text for basic type properties when XML path points to a map
+  if (value->in_state() == flx_variant::map_state) {
+    const flxv_map& value_map = value->map_value();
+    if (value_map.find("#text") != value_map.end()) {
+      (**this)[cpp_name] = value_map.at("#text");
+    } else {
+      (**this)[cpp_name] = *value;
     }
+  } else {
+    (**this)[cpp_name] = *value;
   }
 }
 
-void flx_model::read_xml_children(flx_xml& xml, const flx_string& base_path)
+void flx_model::read_list_property(flx_xml& xml, const flx_string& cpp_name,
+                                    flx_list* list_ptr, const flx_string& full_path)
 {
-  for (auto& child_pair : children) {
-    flx_model* child = child_pair.second;
-    const flx_string& cpp_name = child_pair.first;
-
-    if (props.find(cpp_name) != props.end()) {
-      flx_property_i* prop = props.at(cpp_name);
-      const flxv_map& meta = prop->get_meta();
-
-      if (meta.find("xml_path") != meta.end()) {
-        flx_string xml_path = meta.at("xml_path").string_value();
-        flx_string child_path = base_path.empty() ? xml_path : base_path + "/" + xml_path;
-        child->read_xml(xml, child_path);
-      }
-    }
-  }
-}
-
-void flx_model::read_xml_single_list(flx_xml& xml, const flx_string& base_path,
-                                      const flx_string& cpp_name, flx_list* list_ptr,
-                                      const flx_string& xml_path)
-{
-  flx_string list_path = base_path.empty() ? xml_path : base_path + "/" + xml_path;
-  flx_string list_path_no_placeholder = flx_xml::remove_first_placeholder(list_path);
-
-  const flx_variant* list_data = xml.read_path(list_path_no_placeholder);
+  flx_string path_no_placeholder = flx_xml::remove_first_placeholder(full_path);
+  const flx_variant* list_data = xml.read_path(path_no_placeholder);
   if (!list_data) return;
 
   if (list_data->in_state() == flx_variant::vector_state) {
-    // Multiple elements - iterate over raw data and create mapped models
     const flxv_vector& vec = list_data->vector_value();
-
     for (size_t i = 0; i < vec.size(); ++i) {
-      list_ptr->add_element();  // Create empty element
-      flx_model& element_model = list_ptr->back();  // Get via back()
-      flx_string element_path = flx_xml::replace_first_placeholder(list_path, i);
-      element_model.read_xml(xml, element_path);  // Map XML to model
+      list_ptr->add_element();
+      flx_string element_path = flx_xml::replace_first_placeholder(full_path, i);
+      list_ptr->back().read_xml(xml, element_path);
     }
   } else if (list_data->in_state() == flx_variant::map_state) {
-    // Single element - create mapped model directly
-    list_ptr->add_element();  // Create empty element
-    flx_model& element_model = list_ptr->back();  // Get via back()
-    element_model.read_xml(xml, list_path_no_placeholder);  // Map XML to model
+    list_ptr->add_element();
+    list_ptr->back().read_xml(xml, path_no_placeholder);
   }
 }
 
-void flx_model::read_xml_lists(flx_xml& xml, const flx_string& base_path)
+bool flx_model::try_read_property(flx_xml& xml, const flx_string& cpp_name,
+                                   const flx_string& full_path)
 {
-  for (auto& list_pair : model_lists) {
-    const flx_string& cpp_name = list_pair.first;
+  const flx_variant* value = xml.read_path(full_path);
+  if (!value) return false;
 
-    if (props.find(cpp_name) != props.end()) {
-      flx_property_i* prop = props.at(cpp_name);
-      const flxv_map& meta = prop->get_meta();
+  // Child model?
+  if (children.find(cpp_name) != children.end()) {
+    children[cpp_name]->read_xml(xml, full_path);
+    return true;
+  }
 
-      if (meta.find("xml_path") != meta.end()) {
-        flx_string xml_path = meta.at("xml_path").string_value();
+  // Model list?
+  if (model_lists.find(cpp_name) != model_lists.end()) {
+    read_list_property(xml, cpp_name, model_lists[cpp_name], full_path);
+    return true;
+  }
 
-        if (flx_xml::has_placeholder(xml_path)) {
-          read_xml_single_list(xml, base_path, cpp_name, list_pair.second, xml_path);
-        }
-      }
+  // Primitive property
+  read_primitive_property(cpp_name, value);
+  return true;
+}
+
+void flx_model::read_property(flx_xml& xml, const flx_string& cpp_name,
+                               const flx_string& xml_path, const flx_string& base_path)
+{
+  // Multi-path handling: Split and try alternatives
+  std::vector<flx_string> alternatives = xml_path.contains("|")
+    ? xml_path.split("|")
+    : std::vector<flx_string>{xml_path};
+
+  for (const auto& alt : alternatives) {
+    flx_string trimmed = alt.trim();
+    flx_string full_path = base_path.empty() ? trimmed : base_path + "/" + trimmed;
+
+    if (try_read_property(xml, cpp_name, full_path)) {
+      return;  // Success - stop trying alternatives
     }
   }
 }
 
 void flx_model::read_xml(flx_xml& xml, const flx_string& base_path)
 {
-  read_xml_properties(xml, base_path);
-  read_xml_children(xml, base_path);
-  read_xml_lists(xml, base_path);
+  for (const auto& prop_pair : props) {
+    const flx_string& cpp_name = prop_pair.first;
+    const flxv_map& meta = prop_pair.second->get_meta();
+
+    if (meta.find("xml_path") != meta.end()) {
+      flx_string xml_path = meta.at("xml_path").string_value();
+      read_property(xml, cpp_name, xml_path, base_path);
+    }
+  }
 }
 
 #endif
