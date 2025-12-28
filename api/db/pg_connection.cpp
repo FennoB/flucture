@@ -1,5 +1,6 @@
 #include "pg_connection.h"
 #include "pg_query.h"
+#include "db_exceptions.h"
 #include <pqxx/pqxx>
 #include <iostream>
 
@@ -11,6 +12,7 @@ pg_connection::pg_connection()
   : pimpl_(std::make_unique<impl>())
   , last_error_("")
   , verbose_sql_(false)
+  , reconnect_helper_(std::make_unique<reconnect_helper>(this))
 {
 }
 
@@ -54,11 +56,19 @@ bool pg_connection::is_connected() const
 
 std::unique_ptr<db_query> pg_connection::create_query()
 {
-  // Check connection health and reconnect if needed
+  // Check connection health - throw immediately if not connected
   if (!is_connected()) {
-    if (!reconnect()) {
-      return nullptr;  // Reconnection failed
+    // Start background reconnect thread if not already running
+    if (!reconnect_helper_->is_attempting_reconnect()) {
+      reconnect_helper_->start_reconnect_loop();
     }
+
+    // Throw immediately - don't wait! API stays responsive
+    throw db_not_reachable(
+      "Database not reachable. Reconnect in progress.",
+      reconnect_helper_->get_retry_after_ms(),
+      reconnect_helper_->get_attempt_count()
+    );
   }
 
   return std::make_unique<pg_query>(static_cast<void*>(pimpl_->conn.get()), verbose_sql_);
@@ -82,8 +92,6 @@ bool pg_connection::reconnect()
   }
 
   try {
-    std::cout << "[DB] Connection lost - attempting reconnect..." << std::endl;
-
     // Close old connection
     if (pimpl_->conn) {
       pimpl_->conn.reset();
@@ -93,7 +101,6 @@ bool pg_connection::reconnect()
     pimpl_->conn = std::make_unique<pqxx::connection>(connection_string_.c_str());
 
     if (is_connected()) {
-      std::cout << "[DB] Reconnection successful" << std::endl;
       last_error_ = "";
       return true;
     } else {
@@ -102,7 +109,6 @@ bool pg_connection::reconnect()
     }
   } catch (const std::exception& e) {
     last_error_ = flx_string("Reconnection failed: ") + e.what();
-    std::cerr << "[DB] " << last_error_.c_str() << std::endl;
     return false;
   }
 }

@@ -17,6 +17,11 @@ public:
   virtual std::unique_ptr<db_query> create_query() = 0;
 
   virtual flx_string get_last_error() const = 0;
+
+  // Reconnect using stored connection string
+  // Returns true on success, false on failure
+  // Used by reconnect_helper for automatic reconnection
+  virtual bool reconnect() = 0;
 };
 
 #endif // DB_CONNECTION_H

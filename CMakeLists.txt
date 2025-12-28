@@ -5,6 +5,11 @@ project(flucture_suite LANGUAGES CXX) # Project name adjusted as we build multip
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Required for std::thread in reconnect_helper
+set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+find_package(Threads REQUIRED)
+
 # --- Define source files ---
 # Separate main.cpp from library sources
 set(APP_MAIN_SOURCE main.cpp)
@@ -32,6 +37,7 @@ set(FLUCTURE_CORE_SOURCES
   api/server/flx_httpdaemon.cpp
   api/json/flx_json.cpp
   api/client/flx_http_request.cpp
+  api/db/reconnect_helper.cpp
   api/db/pg_connection.cpp
   api/db/pg_query.cpp
   api/db/db_query_builder.cpp
@@ -243,6 +249,10 @@ target_link_libraries(flucture PRIVATE flucture_core)
 add_executable(pdf_to_layout pdf_to_layout_api.cpp)
 target_link_libraries(pdf_to_layout PRIVATE flucture_core)
 
+# --- PDF to Text Layout Debug Tool ---
+add_executable(pdf_to_text_layout pdf_to_text_layout.cpp)
+target_link_libraries(pdf_to_text_layout PRIVATE flucture_core)
+
 # --- QR Code Generator Tool ---
 add_executable(qr_tool qr_tool.cpp)
 target_link_libraries(qr_tool PRIVATE flucture_core)
@@ -281,7 +291,7 @@ if(BUILD_FLUCTURE_TESTS)
         tests/test_main.cpp
         ${TEST_SOURCES}
     )
-    target_link_libraries(flucture_tests PRIVATE flucture_core Catch2::Catch2WithMain)
+    target_link_libraries(flucture_tests PRIVATE flucture_core Catch2::Catch2WithMain Threads::Threads)
 
     include(CTest)
     add_test(NAME UnitTests COMMAND flucture_tests)

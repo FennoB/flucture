@@ -14,6 +14,7 @@
 //
 // db_exception (base)
 // ├── db_connection_error
+// │   └── db_not_reachable
 // ├── db_query_error
 // │   ├── db_prepare_error
 // │   └── db_constraint_violation
@@ -64,6 +65,22 @@ class db_connection_error : public db_exception {
 public:
   explicit db_connection_error(const flx_string& message)
     : db_exception(message) {}
+};
+
+// Database unreachable - connection lost and reconnect failed/in progress
+class db_not_reachable : public db_connection_error {
+private:
+  int retry_after_ms_;
+  int attempt_count_;
+
+public:
+  db_not_reachable(const flx_string& message, int retry_after_ms, int attempt_count)
+    : db_connection_error(message)
+    , retry_after_ms_(retry_after_ms)
+    , attempt_count_(attempt_count) {}
+
+  int get_retry_after_ms() const { return retry_after_ms_; }
+  int get_attempt_count() const { return attempt_count_; }
 };
 
 // ============================================================================

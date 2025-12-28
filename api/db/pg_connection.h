@@ -2,6 +2,7 @@
 #define PG_CONNECTION_H
 
 #include "db_connection.h"
+#include "reconnect_helper.h"
 #include <memory>
 
 class pg_connection : public db_connection {
@@ -17,6 +18,9 @@ public:
 
   flx_string get_last_error() const override;
 
+  // Reconnect using stored connection string
+  bool reconnect() override;
+
   void* get_native_connection();
 
   // SQL query logging
@@ -29,8 +33,7 @@ private:
   flx_string last_error_;
   flx_string connection_string_;  // Store for auto-reconnect
   bool verbose_sql_;               // Enable SQL query logging
-
-  bool reconnect();  // Internal reconnection method
+  std::unique_ptr<reconnect_helper> reconnect_helper_;  // Background reconnect thread
 };
 
 #endif // PG_CONNECTION_H
